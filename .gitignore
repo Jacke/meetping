@@ -1,0 +1,44 @@
+# Golang
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go build cache
+/pkg/
+/bin/
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs and database
+logs/
+*.log
+data/
+*.sqlite
+
+# Env & compiled configs
+.env
+.env.*
+.envrc
+
+# Backups & artifacts
+*.zip
+*.csv
+meetping_backup.zip
+
+# Docker volumes (optional)
+docker-compose.override.yml
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Shit 
+shit/
