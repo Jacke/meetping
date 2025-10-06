@@ -23,3 +23,7 @@ func SimulateFakeActivity(eventIDs []int64) map[int64]int {
 	}
 	return result
 }
+
+func Score(likes int, rsvps int, fake int) float64 {
+	return float64(likes) + float64(rsvps)*1.8 + float64(fake)*0.6
+}

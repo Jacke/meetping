@@ -2,8 +2,9 @@ package main
 
 import (
 	"log"
-	"github.com/joho/godotenv"
 	"meetping/internal/bot"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {

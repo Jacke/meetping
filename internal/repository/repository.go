@@ -125,3 +125,17 @@ type Event struct {
 	Link        string
 	Datetime    string
 }
+
+func (r *Repository) GetUserByID(userID int) repo.User {
+	var u repo.User
+	_ = r.DB.QueryRow("SELECT id, telegram_id, username, digest_time FROM users WHERE id = ?", userID).
+		Scan(&u.ID, &u.TelegramID, &u.Username, &u.DigestTime)
+	return u
+}
+
+func (r *Repository) GetEventByID(eventID int) repo.Event {
+	var e repo.Event
+	_ = r.DB.QueryRow("SELECT id, title, description, city_id, date FROM events WHERE id = ?", eventID).
+		Scan(&e.ID, &e.Title, &e.Description, &e.CityID, &e.Date)
+	return e
+}

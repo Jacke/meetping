@@ -2,9 +2,9 @@ package scheduler
 
 import (
 	"log"
+	"meetping/internal/config"
 	"os"
 	"time"
-	"meetping/internal/config"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -19,10 +19,10 @@ func DailyBackupToAdmin(bot *tgbotapi.BotAPI) {
 	file, _ := os.Open(path)
 	defer file.Close()
 
-	doc := tgbotapi.NewDocument(config.AdminID, tgbotapi.FileReader{
+	cfg := config.Load()
+	doc := tgbotapi.NewDocument(cfg.AdminID, tgbotapi.FileReader{
 		Name:   path,
 		Reader: file,
-		Size:   -1,
 	})
 	bot.Send(doc)
 	log.Printf("[backup] отправлен %s", path)

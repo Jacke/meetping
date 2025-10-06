@@ -1,9 +1,8 @@
 package scheduler
 
 import (
-	"github.com/robfig/cron/v3"
-	"meetping/internal/config"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/robfig/cron/v3"
 )
 
 func Init(bot *tgbotapi.BotAPI) *cron.Cron {

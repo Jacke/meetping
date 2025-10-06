@@ -3,7 +3,6 @@ package scheduler
 import (
 	"log"
 	"math/rand"
-	"time"
 )
 
 func SimulateFakeReactions() {
