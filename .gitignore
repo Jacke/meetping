@@ -1,52 +1,57 @@
-# Golang
-*.exe
-*.exe~
-*.dll
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 *.so
-*.dylib
-*.test
-*.out
+.Python
+*.egg-info/
+dist/
+build/
 
-# Go build cache
-/pkg/
-/bin/
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
 
 # IDE/editor files
 .vscode/
 .idea/
+.cursor/
 *.swp
 *.swo
 
 # Logs and database
-logs/
-*.log
+logs/*.log
+!logs/.keep
 data/
 *.sqlite
+*.db
+context.db
 
-# Env & compiled configs
+# Environment files
 .env
 .env.*
 .envrc
+!.env.example
 
 # Backups & artifacts
 *.zip
 *.csv
-meetping_backup.zip
-
-# Docker volumes (optional)
-docker-compose.override.yml
+*.tar.gz
+*-backup.tar.gz
 
 # System files
 .DS_Store
 Thumbs.db
 
-# Shit 
-shit/
-
-
-.env
-.env.test
-.env.prod
-.env.dev
-.env.staging
-!.env.example
+# Old project artifacts (archived)
+meetping
+meetping.db
+old-*.tar.gz
