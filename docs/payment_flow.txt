@@ -1,0 +1,24 @@
+Flow: payment_bot
+==================================================
+START -> welcome
+
+[welcome]
+  Trigger: /start
+  Message: 👋 Добро пожаловать, {user.first_name}!  🎉 Это бот ...
+  Buttons:
+    - 💳 Оплатить билет -> payment_info
+  Transitions:
+    pay_ticket -> payment_info
+
+[payment_info]
+  Trigger: pay_ticket
+  Message: 💰 Информация для оплаты......
+  Auto -> awaiting_payment
+
+[awaiting_payment]
+  Polling: every 10s
+    -> success (on success)
+
+[success]
+  Message: ✅ Оплата подтверждена! 🎊...
+  [FINAL]

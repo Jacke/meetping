@@ -1,0 +1,15 @@
+digraph BotFlow {
+    rankdir=TB;
+    node [shape=box, style=rounded];
+
+    START [label="Start", shape=circle, style=filled, fillcolor=green];
+    START -> welcome;
+    welcome [label="welcome\n"👋 Добро пожаловать, {user.firs..."", shape=box, style="rounded,filled", fillcolor=lightgray];
+    welcome -> payment_info [label="click '💳 Оплатить билет'"];
+    payment_info [label="payment_info\n"💰 Информация для оплаты......"", shape=box, style="rounded,filled", fillcolor=lightgray];
+    payment_info -> awaiting_payment [style=dashed];
+    awaiting_payment [label="awaiting_payment", shape=diamond, style=filled, fillcolor=yellow];
+    awaiting_payment -> success [label="check passed", color=green];
+    awaiting_payment -> awaiting_payment [label="poll 10s", color=gray, style=dashed];
+    success [label="success\n"✅ Оплата подтверждена! 🎊..."", shape=doublecircle, style=filled, fillcolor=lightblue];
+}

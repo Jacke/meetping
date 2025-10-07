@@ -139,3 +139,119 @@ pytest test_integration_nocodb.py::TestNocoDBIntegration::test_payment_workflow 
 - ✅ Connection validation
 
 **Note:** Integration tests automatically clean up created test records after execution.
+
+## Bot Flow Framework (NEW)
+
+**bot_flow/** - Declarative framework for building Telegram bots with automatic flow visualization
+
+### Overview
+
+The `bot_flow` framework provides a Graph Builder API for creating Telegram bots declaratively:
+- **Fluent API** - Build bot flows with chainable methods
+- **Auto visualization** - Generate Mermaid/GraphViz diagrams from code
+- **Polling support** - Built-in polling for async checks (payments, timers)
+- **Validation** - Flow validation at build time, not runtime
+- **Type hints** - Full IDE support with autocomplete
+
+### Structure
+
+```
+bot_flow/
+├── core/
+│   ├── state.py          # StateNode, Flow, PollingConfig
+│   ├── builder.py        # FlowBuilder, StateBuilder (Fluent API)
+│   ├── executor.py       # FlowExecutor (runs flow with python-telegram-bot)
+│   └── visualizer.py     # FlowVisualizer (Mermaid/GraphViz export)
+├── flows/
+│   └── payment_flow.py   # Declarative payment_bot implementation
+├── examples/
+│   └── demo.py           # 5 example bots (welcome, survey, menu, timer, age_gate)
+└── README.md             # Full API documentation
+```
+
+### Quick Example
+
+```python
+from bot_flow.core import FlowBuilder, FlowExecutor
+
+flow = (
+    FlowBuilder("my_bot")
+    .state("start")
+        .on_command("/start")
+        .reply("Hello!")
+        .button("Next", goto="next")
+    .state("next")
+        .reply("Done!")
+        .final()
+    .build()
+)
+
+# Visualize
+flow.visualize().export_mermaid("flow.md")
+
+# Run
+FlowExecutor(flow, bot_token).run()
+```
+
+### Usage
+
+```bash
+# Visualize payment_bot flow
+python3 visualize_payment_flow.py
+# Generates: docs/payment_flow.md, docs/payment_flow.dot, docs/payment_flow.txt
+
+# Run example bots
+python3 bot_flow/examples/demo.py visualize  # Generate all examples
+python3 bot_flow/examples/demo.py run menu   # Run menu bot
+
+# Run declarative payment bot
+python3 bot_flow/flows/payment_flow.py       # Normal mode
+python3 bot_flow/flows/payment_flow.py visualize  # Generate diagrams
+```
+
+### Documentation
+
+- **API Reference**: [bot_flow/README.md](bot_flow/README.md)
+- **Full Guide**: [docs/FLOW_BUILDER_GUIDE.md](docs/FLOW_BUILDER_GUIDE.md)
+- **Approaches Comparison**: [docs/DECLARATIVE_BOT_APPROACHES.md](docs/DECLARATIVE_BOT_APPROACHES.md)
+- **Payment Flow Diagram**: [docs/payment_flow.md](docs/payment_flow.md)
+
+### Key Features
+
+1. **Declarative Flow Definition**
+   - Define bot flow as a graph of states
+   - ~40 lines vs 232 lines of imperative code
+
+2. **Automatic Visualization**
+   - Generate Mermaid state diagrams
+   - Export GraphViz DOT files
+   - ASCII diagrams for terminal
+
+3. **Polling Support**
+   - Built-in polling for async operations
+   - Example: Check payment status every 10 seconds
+   - Conditional transitions based on poll results
+
+4. **Context Management**
+   - FlowContext object for storing user data
+   - Access to user info, environment vars
+   - Template variables in messages: `{user.first_name}`
+
+5. **Flow Validation**
+   - Validates state transitions at build time
+   - Checks for unreachable states
+   - Ensures all transitions point to valid states
+
+### Comparison: Imperative vs Declarative
+
+**payment_bot.py** (Imperative - 232 lines):
+- Logic scattered across functions
+- Hard to visualize flow
+- No automatic diagram generation
+
+**bot_flow/flows/payment_flow.py** (Declarative - ~40 lines):
+- Entire flow visible at once
+- Auto-generates flow diagrams
+- Easy to test and maintain
+
+See [docs/DECLARATIVE_BOT_APPROACHES.md](docs/DECLARATIVE_BOT_APPROACHES.md) for detailed comparison.
