@@ -42,3 +42,11 @@ Thumbs.db
 
 # Shit 
 shit/
+
+
+.env
+.env.test
+.env.prod
+.env.dev
+.env.staging
+!.env.example
