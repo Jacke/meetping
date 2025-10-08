@@ -9,6 +9,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from bot_flow.core import FlowBuilder, FlowContext
+from bot_flow.flows.texts_loader import load_texts_from_nocodb
 
 # Load environment
 env_file_path = Path(__file__).resolve().parent.parent.parent / ".env"
@@ -21,6 +22,9 @@ NOCODB_TABLE_ID = os.getenv("NOCODB_TABLE_ID")
 PAYMENT_PHONE = os.getenv("PAYMENT_PHONE", "+7 (999) 123-45-67")
 PAYMENT_AMOUNT = os.getenv("PAYMENT_AMOUNT", "1000 рублей")
 TELEGRAM_GROUP_LINK = os.getenv("TELEGRAM_GROUP_LINK", "https://t.me/your_group_link")
+
+# Global texts storage (loaded from NocoDB at startup)
+TEXTS = {}
 
 
 # ============================================================================
@@ -102,13 +106,28 @@ async def check_payment_status(ctx: FlowContext) -> bool:
 # Flow Definition
 # ============================================================================
 
-def build_payment_flow() -> 'Flow':
+async def build_payment_flow() -> 'Flow':
     """
     Build the payment bot flow declaratively.
 
     Flow structure:
         welcome -> payment_info -> awaiting_payment -> success
     """
+    # Load texts from NocoDB
+    global TEXTS
+    TEXTS = await load_texts_from_nocodb()
+
+    # Format payment_info with actual values
+    payment_info_text = TEXTS.get("payment_info", "").format(
+        PAYMENT_PHONE=PAYMENT_PHONE,
+        PAYMENT_AMOUNT=PAYMENT_AMOUNT
+    )
+
+    # Format success message with group link
+    success_text = TEXTS.get("success_message", "").format(
+        TELEGRAM_GROUP_LINK=TELEGRAM_GROUP_LINK
+    )
+
     flow = (
         FlowBuilder("payment_bot")
 
@@ -117,12 +136,12 @@ def build_payment_flow() -> 'Flow':
         # ====================================================================
         .state("welcome")
             .on_command("/start")
-            .reply(
-                "👋 Добро пожаловать, {user.first_name}!\n\n"
-                "🎉 Это бот для регистрации и оплаты билетов на наше мероприятие.\n\n"
-                "Нажмите на кнопку ниже, чтобы начать процесс оплаты."
+            .reply(TEXTS.get("welcome_message", ""))
+            .button(
+                TEXTS.get("pay_button", "💳 Оплатить билет"),
+                callback_data="pay_ticket",
+                goto="payment_info"
             )
-            .button("💳 Оплатить билет на мероприятие", callback_data="pay_ticket", goto="payment_info")
 
         # ====================================================================
         # State: Payment Info
@@ -130,17 +149,7 @@ def build_payment_flow() -> 'Flow':
         .state("payment_info")
             .on_callback("pay_ticket")
             .action(create_payment_record)
-            .reply(
-                "💰 <b>Информация для оплаты:</b>\n\n"
-                f"📱 Номер телефона: <code>{PAYMENT_PHONE}</code>\n"
-                f"💵 Сумма: <b>{PAYMENT_AMOUNT}</b>\n\n"
-                "📋 <b>Инструкция:</b>\n"
-                "1. Переведите указанную сумму на номер телефона\n"
-                "2. Дождитесь подтверждения оплаты\n"
-                "3. После подтверждения вы получите доступ к группе мероприятия\n\n"
-                "⏳ Ожидаем подтверждения оплаты...",
-                parse_mode="HTML"
-            )
+            .reply(payment_info_text, parse_mode="HTML")
             .transition(to="awaiting_payment")
 
         # ====================================================================
@@ -154,14 +163,7 @@ def build_payment_flow() -> 'Flow':
         # State: Success
         # ====================================================================
         .state("success")
-            .reply(
-                "✅ <b>Оплата подтверждена!</b>\n\n"
-                "🎊 Поздравляем! Ваш билет успешно оплачен.\n\n"
-                "👥 Присоединяйтесь к нашей группе:\n"
-                f"{TELEGRAM_GROUP_LINK}\n\n"
-                "До встречи на мероприятии! 🎉",
-                parse_mode="HTML"
-            )
+            .reply(success_text, parse_mode="HTML")
             .final()
 
         .build()
@@ -174,15 +176,15 @@ def build_payment_flow() -> 'Flow':
 # Main - Run bot or export visualization
 # ============================================================================
 
-def main():
-    """Main entry point"""
+async def main_async():
+    """Async main entry point"""
     import sys
 
     # Check if we should just visualize
     if len(sys.argv) > 1 and sys.argv[1] == "visualize":
         from bot_flow.core import visualize
 
-        flow = build_payment_flow()
+        flow = await build_payment_flow()
         visualizer = visualize(flow)
 
         # Export all formats
@@ -208,12 +210,18 @@ def main():
         print("⚠️ NocoDB not configured. Working in local mode.")
         print("   Add NOCODB_API_TOKEN and NOCODB_TABLE_ID to .env for full functionality")
 
-    # Build flow
-    flow = build_payment_flow()
+    # Build flow (loads texts from NocoDB)
+    flow = await build_payment_flow()
 
     # Create and run executor
     executor = FlowExecutor(flow, BOT_TOKEN)
     executor.run()
+
+
+def main():
+    """Main entry point"""
+    import asyncio
+    asyncio.run(main_async())
 
 
 if __name__ == "__main__":

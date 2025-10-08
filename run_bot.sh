@@ -24,6 +24,7 @@ usage() {
     echo "Usage: ./run_bot.sh [command]"
     echo ""
     echo "Commands:"
+    echo "  install           - Install Python dependencies"
     echo "  original          - Run original imperative payment_bot.py"
     echo "  flow              - Run declarative bot_flow payment bot"
     echo "  demo [bot_name]   - Run bot_flow example bot"
@@ -31,6 +32,7 @@ usage() {
     echo "  test              - Run all tests"
     echo ""
     echo "Examples:"
+    echo "  ./run_bot.sh install               # Install dependencies"
     echo "  ./run_bot.sh original              # Run payment_bot.py"
     echo "  ./run_bot.sh flow                  # Run declarative flow bot"
     echo "  ./run_bot.sh demo menu             # Run menu example"
@@ -47,23 +49,59 @@ check_python() {
     fi
 }
 
+# Install dependencies
+run_install() {
+    echo -e "${GREEN}Installing Python dependencies...${NC}"
+
+    if [ ! -f requirements.txt ]; then
+        echo -e "${RED}Error: requirements.txt not found!${NC}"
+        exit 1
+    fi
+
+    # Check if virtual environment exists
+    if [ ! -d ".venv" ]; then
+        echo -e "${YELLOW}Creating virtual environment...${NC}"
+        python3 -m venv .venv
+    fi
+
+    # Activate venv and install
+    echo -e "${YELLOW}Activating virtual environment...${NC}"
+    source .venv/bin/activate
+    pip install -r requirements.txt
+
+    echo -e "${GREEN}✓ Dependencies installed in .venv!${NC}"
+    echo -e "${YELLOW}Note: Commands will automatically use .venv${NC}"
+}
+
 # Run original imperative bot
 run_original() {
     echo -e "${GREEN}Starting original payment_bot.py...${NC}"
-    python3 payment_bot.py
+    if [ -f ".venv/bin/python" ]; then
+        .venv/bin/python payment_bot.py
+    else
+        python3 payment_bot.py
+    fi
 }
 
 # Run declarative flow bot
 run_flow() {
     echo -e "${GREEN}Starting declarative bot_flow payment bot...${NC}"
-    python3 bot_flow/flows/payment_flow.py
+    if [ -f ".venv/bin/python" ]; then
+        PYTHONPATH=. .venv/bin/python bot_flow/flows/payment_flow.py
+    else
+        PYTHONPATH=. python3 bot_flow/flows/payment_flow.py
+    fi
 }
 
 # Run demo bot
 run_demo() {
     local bot_name=${1:-welcome}
     echo -e "${GREEN}Starting demo bot: ${bot_name}${NC}"
-    python3 bot_flow/examples/demo.py run "$bot_name"
+    if [ -f ".venv/bin/python" ]; then
+        PYTHONPATH=. .venv/bin/python bot_flow/examples/demo.py run "$bot_name"
+    else
+        PYTHONPATH=. python3 bot_flow/examples/demo.py run "$bot_name"
+    fi
 }
 
 # Generate visualizations
@@ -72,19 +110,22 @@ run_visualize() {
 
     # Payment flow
     echo -e "${YELLOW}→ Generating payment_flow diagrams...${NC}"
-    python3 visualize_payment_flow.py
+    PYTHONPATH=. python3 visualize_payment_flow.py
 
-    # Demo flows
+    # Demo flows (skip if dependencies not installed)
     echo -e "${YELLOW}→ Generating demo bot diagrams...${NC}"
-    python3 bot_flow/examples/demo.py visualize
+    if PYTHONPATH=. python3 -c "import telegram" 2>/dev/null; then
+        PYTHONPATH=. python3 bot_flow/examples/demo.py visualize
+    else
+        echo -e "${YELLOW}⚠ Skipping demo visualizations (run 'pip install -r requirements.txt' first)${NC}"
+    fi
 
-    echo -e "${GREEN}✓ All visualizations generated!${NC}"
+    echo -e "${GREEN}✓ Visualizations generated!${NC}"
     echo ""
     echo "Generated files:"
     echo "  - docs/payment_flow.md (Mermaid)"
     echo "  - docs/payment_flow.dot (GraphViz)"
     echo "  - docs/payment_flow.txt (ASCII)"
-    echo "  - docs/examples/*.md (Demo bots)"
 }
 
 # Run tests
@@ -110,6 +151,9 @@ run_tests() {
 check_python
 
 case "${1:-}" in
+    install)
+        run_install
+        ;;
     original)
         run_original
         ;;
