@@ -15,15 +15,18 @@ All bots load environment variables from `.env` file located at project root:
 - `LOG_FILE` - Path to log file
 - `OPENAI_API_KEY` - OpenAI API key for agent functionality
 
-### NocoDB Configuration (payment_bot.py)
+### NocoDB Configuration
 - `NOCODB_API_URL` - NocoDB API endpoint (default: https://app.nocodb.com)
 - `NOCODB_API_TOKEN` - NocoDB authentication token
-- `NOCODB_TABLE_ID` - Table ID for payment records
+- `NOCODB_TABLE_ID` - Table ID for payment records (mfaob33z2nnrxve)
 
-### Payment Settings (payment_bot.py)
-- `PAYMENT_PHONE` - Phone number for payment transfers
-- `PAYMENT_AMOUNT` - Ticket price
-- `TELEGRAM_GROUP_LINK` - Event group invitation link
+### NocoDB Tables
+- **Payment Records** (`mfaob33z2nnrxve`) - Stores payment records with user data
+- **Bot Texts** (`pwt37o18yvtfeh6`) - Stores all bot text messages (action -> text)
+- **Bot Config** (`mguawvnumqrb5k7`) - Stores bot configuration (action -> msg)
+  - `PAYMENT_PHONE` - Phone number for payment transfers
+  - `PAYMENT_AMOUNT` - Ticket price
+  - `TELEGRAM_GROUP_LINK` - Event group invitation link
 
 Environment file pattern: `Path(__file__).resolve().parent.parent / ".env"` for payment_bot.py
 

@@ -48,14 +48,17 @@ BOT_TOKEN=your_telegram_bot_token_here
 NOCODB_API_URL=https://app.nocodb.com
 NOCODB_API_TOKEN=your_nocodb_api_token
 NOCODB_TABLE_ID=your_table_id
-
-# Payment Settings
-PAYMENT_PHONE=+7 (999) 123-45-67
-PAYMENT_AMOUNT=1000 рублей
-TELEGRAM_GROUP_LINK=https://t.me/your_group_link
 ```
 
-> **Примечание:** Бот работает и без NocoDB (в локальном режиме), но для полной функциональности платежей нужна настройка NocoDB.
+> **Важно:** Настройки платежей и тексты бота хранятся в NocoDB таблицах:
+> - **Bot Config** (`mguawvnumqrb5k7`) - PAYMENT_PHONE, PAYMENT_AMOUNT, TELEGRAM_GROUP_LINK
+> - **Bot Texts** (`pwt37o18yvtfeh6`) - все текстовые сообщения бота
+>
+> Загрузите начальные данные:
+> ```bash
+> python upload_config_to_nocodb.py
+> python upload_texts_to_nocodb.py
+> ```
 
 ---
 

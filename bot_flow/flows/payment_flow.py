@@ -10,21 +10,20 @@ from dotenv import load_dotenv
 
 from bot_flow.core import FlowBuilder, FlowContext
 from bot_flow.flows.texts_loader import load_texts_from_nocodb
+from bot_flow.flows.config_loader import load_config_from_nocodb
 
 # Load environment
 env_file_path = Path(__file__).resolve().parent.parent.parent / ".env"
 load_dotenv(env_file_path)
 
-# Configuration
+# NocoDB configuration
 NOCODB_API_URL = os.getenv("NOCODB_API_URL", "https://app.nocodb.com")
 NOCODB_API_TOKEN = os.getenv("NOCODB_API_TOKEN")
 NOCODB_TABLE_ID = os.getenv("NOCODB_TABLE_ID")
-PAYMENT_PHONE = os.getenv("PAYMENT_PHONE", "+7 (999) 123-45-67")
-PAYMENT_AMOUNT = os.getenv("PAYMENT_AMOUNT", "1000 рублей")
-TELEGRAM_GROUP_LINK = os.getenv("TELEGRAM_GROUP_LINK", "https://t.me/your_group_link")
 
-# Global texts storage (loaded from NocoDB at startup)
+# Global storage (loaded from NocoDB at startup)
 TEXTS = {}
+CONFIG = {}
 
 
 # ============================================================================
@@ -43,10 +42,14 @@ async def create_payment_record(ctx: FlowContext) -> None:
         "Content-Type": "application/json"
     }
 
+    # Get payment amount from config
+    payment_amount = CONFIG.get("PAYMENT_AMOUNT", "1000 рублей")
+    price = int(payment_amount.split()[0]) if payment_amount else 1000
+
     data = {
         "TG": ctx.user.username or "",
         "TG ID": ctx.user.id,
-        "Price": int(PAYMENT_AMOUNT.split()[0]) if PAYMENT_AMOUNT else 1000,
+        "Price": price,
         "Paid": False
     }
 
@@ -113,19 +116,20 @@ async def build_payment_flow() -> 'Flow':
     Flow structure:
         welcome -> payment_info -> awaiting_payment -> success
     """
-    # Load texts from NocoDB
-    global TEXTS
+    # Load texts and config from NocoDB
+    global TEXTS, CONFIG
     TEXTS = await load_texts_from_nocodb()
+    CONFIG = await load_config_from_nocodb()
 
-    # Format payment_info with actual values
+    # Format payment_info with actual values from config
     payment_info_text = TEXTS.get("payment_info", "").format(
-        PAYMENT_PHONE=PAYMENT_PHONE,
-        PAYMENT_AMOUNT=PAYMENT_AMOUNT
+        PAYMENT_PHONE=CONFIG.get("PAYMENT_PHONE", "+7 (999) 123-45-67"),
+        PAYMENT_AMOUNT=CONFIG.get("PAYMENT_AMOUNT", "1000 рублей")
     )
 
-    # Format success message with group link
+    # Format success message with group link from config
     success_text = TEXTS.get("success_message", "").format(
-        TELEGRAM_GROUP_LINK=TELEGRAM_GROUP_LINK
+        TELEGRAM_GROUP_LINK=CONFIG.get("TELEGRAM_GROUP_LINK", "https://t.me/your_group_link")
     )
 
     flow = (
