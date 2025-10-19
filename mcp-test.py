@@ -1,7 +1,5 @@
 import openai
-import os
-from pathlib import Path
-from dotenv import load_dotenv
+from config import config
 from langchain.chains import ConversationChain
 try:
     from langchain_openai import OpenAI as LCOpenAI
@@ -14,14 +12,11 @@ from langchain.prompts import PromptTemplate
 from sqlalchemy import create_engine, Column, String, Integer, Sequence
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Загрузка переменных окружения из .env в корне проекта
-load_dotenv()
-load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
-
-api_key = os.getenv("OPENAI_API_KEY")
+# Load OpenAI API key from centralized config
+api_key = config.OPENAI_API_KEY
 if not api_key:
     raise RuntimeError(
-        "Не задан OPENAI_API_KEY. Создайте файл .env с OPENAI_API_KEY=..."
+        "Не задан OPENAI_API_KEY. Добавьте OPENAI_API_KEY в .env файл"
     )
 openai.api_key = api_key
 

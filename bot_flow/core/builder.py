@@ -131,6 +131,18 @@ class StateBuilder:
 
         return self
 
+    def otherwise(self, goto: str) -> 'StateBuilder':
+        """
+        Set the fallback transition if polling condition is False.
+        Only works if this state has polling enabled.
+
+        Args:
+            goto: Target state if condition is false
+        """
+        if self._state.polling:
+            self._state.polling.on_false_goto = goto
+        return self
+
     def final(self) -> 'StateBuilder':
         """Mark this state as final (no transitions out)"""
         self._state.is_final = True

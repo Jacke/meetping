@@ -2,31 +2,32 @@
 """
 Telegram bot для оплаты билетов на мероприятие с интеграцией NocoDB
 """
-import os
 import asyncio
+import signal
 import httpx
-from pathlib import Path
 from typing import Dict, Optional
-from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# Загрузка переменных окружения
-env_file_path = Path(__file__).resolve().parent.parent / ".env"
-load_dotenv(env_file_path)
+from config import config
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-NOCODB_API_URL = os.getenv("NOCODB_API_URL", "https://app.nocodb.com")
-NOCODB_API_TOKEN = os.getenv("NOCODB_API_TOKEN")
-NOCODB_TABLE_ID = os.getenv("NOCODB_TABLE_ID")
+# Load configuration from centralized config
+BOT_TOKEN = config.BOT_TOKEN
+NOCODB_API_URL = config.NOCODB_API_URL
+NOCODB_API_TOKEN = config.NOCODB_API_TOKEN
+NOCODB_TABLE_ID = config.NOCODB_TABLE_ID
 
-# Настройки оплаты
-PAYMENT_PHONE = os.getenv("PAYMENT_PHONE", "+7 (999) 123-45-67")
-PAYMENT_AMOUNT = os.getenv("PAYMENT_AMOUNT", "1000 рублей")
-TELEGRAM_GROUP_LINK = os.getenv("TELEGRAM_GROUP_LINK", "https://t.me/your_group_link")
+# Payment settings will be loaded from NocoDB at runtime
+PAYMENT_PHONE = "+7 (999) 123-45-67"  # Default, overridden by NocoDB
+PAYMENT_AMOUNT = "1000 рублей"  # Default, overridden by NocoDB
+TELEGRAM_GROUP_LINK = "https://t.me/your_group_link"  # Default, overridden by NocoDB
 
 # Словарь для отслеживания пользователей, ожидающих оплату
 pending_payments: Dict[int, str] = {}  # user_id -> nocodb_record_id
+
+# Global application instance for graceful shutdown
+application: Optional[Application] = None
+shutdown_event = asyncio.Event()
 
 
 async def create_payment_record(user_id: int, username: str, first_name: str) -> Optional[str]:
@@ -142,29 +143,38 @@ async def payment_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def check_payment_status(context: ContextTypes.DEFAULT_TYPE, user_id: int, chat_id: int) -> None:
     """Проверка статуса оплаты пользователя в NocoDB"""
-    while user_id in pending_payments:
-        await asyncio.sleep(10)  # Проверяем каждые 10 секунд
+    try:
+        while user_id in pending_payments and not shutdown_event.is_set():
+            await asyncio.sleep(10)  # Проверяем каждые 10 секунд
 
-        record_id = pending_payments.get(user_id)
-        if not record_id:
-            continue
+            # Check if shutdown requested
+            if shutdown_event.is_set():
+                print(f"⏹️  Stopping payment check for user {user_id} due to shutdown")
+                break
 
-        # Проверяем статус в NocoDB
-        is_paid = await check_payment_in_nocodb(record_id)
+            record_id = pending_payments.get(user_id)
+            if not record_id:
+                continue
 
-        if is_paid:
-            success_message = (
-                "✅ <b>Оплата подтверждена!</b>\n\n"
-                f"🎊 Поздравляем! Ваш билет успешно оплачен.\n\n"
-                f"👥 Присоединяйтесь к нашей группе:\n"
-                f"{TELEGRAM_GROUP_LINK}\n\n"
-                "До встречи на мероприятии! 🎉"
-            )
+            # Проверяем статус в NocoDB
+            is_paid = await check_payment_in_nocodb(record_id)
 
-            await context.bot.send_message(chat_id=chat_id, text=success_message, parse_mode="HTML")
-            del pending_payments[user_id]
-            print(f"✅ Оплата подтверждена для пользователя {user_id}")
-            break
+            if is_paid:
+                success_message = (
+                    "✅ <b>Оплата подтверждена!</b>\n\n"
+                    f"🎊 Поздравляем! Ваш билет успешно оплачен.\n\n"
+                    f"👥 Присоединяйтесь к нашей группе:\n"
+                    f"{TELEGRAM_GROUP_LINK}\n\n"
+                    "До встречи на мероприятии! 🎉"
+                )
+
+                await context.bot.send_message(chat_id=chat_id, text=success_message, parse_mode="HTML")
+                del pending_payments[user_id]
+                print(f"✅ Оплата подтверждена для пользователя {user_id}")
+                break
+    except asyncio.CancelledError:
+        print(f"⏹️  Payment check cancelled for user {user_id}")
+        raise
 
 
 async def confirm_payment(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -204,8 +214,35 @@ async def list_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await update.message.reply_text(message, parse_mode="HTML")
 
 
+def signal_handler(signum, _frame):
+    """Handle shutdown signals"""
+    print(f"\n⚠️  Received signal {signum}, initiating shutdown...")
+    shutdown_event.set()
+
+
+async def cleanup():
+    """Cleanup resources on shutdown"""
+    global application
+
+    print("\n🛑 Shutting down gracefully...")
+
+    # Wait a moment for any pending operations
+    await asyncio.sleep(0.5)
+
+    # Stop application
+    if application:
+        print("⏹️  Stopping bot application...")
+        await application.stop()
+        await application.shutdown()
+        print("✅ Bot stopped cleanly")
+
+    print("👋 Goodbye!")
+
+
 def main() -> None:
     """Запуск бота"""
+    global application
+
     if not BOT_TOKEN:
         print("❌ BOT_TOKEN не найден в .env файле!")
         return
@@ -215,6 +252,10 @@ def main() -> None:
         print("⚠️ NocoDB не настроен. Работаем в локальном режиме.")
         print("   Добавьте NOCODB_API_TOKEN и NOCODB_TABLE_ID в .env для полной функциональности")
 
+    # Setup signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+
     application = Application.builder().token(BOT_TOKEN).build()
 
     # Регистрация обработчиков
@@ -223,8 +264,23 @@ def main() -> None:
     application.add_handler(CommandHandler("pending", list_pending))
     application.add_handler(CallbackQueryHandler(payment_button, pattern="^pay_ticket$"))
 
-    print("🤖 Бот запущен и готов к работе!")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    print("🤖 Бот запущен и готов к работе! (Press Ctrl+C to stop)")
+
+    try:
+        application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            close_loop=False  # We'll handle cleanup ourselves
+        )
+    except KeyboardInterrupt:
+        pass
+    finally:
+        # Run cleanup
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(cleanup())
+        finally:
+            loop.close()
 
 
 if __name__ == "__main__":

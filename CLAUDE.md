@@ -10,10 +10,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Environment Configuration
 
-All bots load environment variables from `.env` file located at project root:
-- `BOT_TOKEN` / `TELEGRAM_TOKEN` - Telegram bot authentication token
-- `LOG_FILE` - Path to log file
+All environment variables are centralized in `config.py` module. Variables are loaded from `.env` file at project root.
+
+### Required Variables
+- `BOT_TOKEN` - Telegram bot authentication token
+
+### Optional Variables
+- `LOG_FILE` - Path to log file (default: logs/bot.log)
 - `OPENAI_API_KEY` - OpenAI API key for agent functionality
+- `ENV` - Environment mode (default: dev)
+- `DATABASE_URL` - Database connection string
 
 ### NocoDB Configuration
 - `NOCODB_API_URL` - NocoDB API endpoint (default: https://app.nocodb.com)
@@ -22,25 +28,47 @@ All bots load environment variables from `.env` file located at project root:
 
 ### NocoDB Tables
 - **Payment Records** (`mfaob33z2nnrxve`) - Stores payment records with user data
-- **Bot Texts** (`pwt37o18yvtfeh6`) - Stores all bot text messages (action -> text)
-- **Bot Config** (`mguawvnumqrb5k7`) - Stores bot configuration (action -> msg)
-  - `PAYMENT_PHONE` - Phone number for payment transfers
-  - `PAYMENT_AMOUNT` - Ticket price
-  - `TELEGRAM_GROUP_LINK` - Event group invitation link
+  - `TG ID` - Telegram user ID (used for checking existing registrations)
+  - `TG` - Telegram username
+  - `Price` - Ticket price
+  - `Paid` - Payment status (boolean/toggle)
+- **Bot Texts & Config** (`mguawvnumqrb5k7`) - Stores all bot messages and configuration (action -> text)
+  - **Text Messages** (lowercase action):
+    - `welcome_message` - Welcome message with {user.first_name} placeholder
+    - `pay_button` - Payment button text
+    - `payment_info` - Payment instructions with {PAYMENT_PHONE} and {PAYMENT_AMOUNT} placeholders
+    - `success_message` - Success message with {TELEGRAM_GROUP_LINK} placeholder
+    - `already_registered_message` - Message for users who already registered
+  - **Configuration** (uppercase action):
+    - `PAYMENT_PHONE` - Phone number for payment transfers
+    - `PAYMENT_AMOUNT` - Ticket price
+    - `TELEGRAM_GROUP_LINK` - Event group invitation link
 
-Environment file pattern: `Path(__file__).resolve().parent.parent / ".env"` for payment_bot.py
+### Configuration Module
+All bots import configuration from centralized `config.py`:
+```python
+from config import config
+
+BOT_TOKEN = config.BOT_TOKEN
+NOCODB_API_TOKEN = config.NOCODB_API_TOKEN
+```
 
 ## Current Architecture
 
 ### Python Bots
 
-**payment_bot.py** - Main payment processing bot with NocoDB integration:
-- `/start` - Welcome message with payment button
-- Callback handler for payment initiation
+**bot_flow/flows/payment_flow.py** - Main payment processing bot (declarative flow version):
+- `/start` - Welcome message with payment button (visible in Telegram command menu)
+- `/stats` - Admin-only command for viewing registration statistics
+- Checks if user is already registered (prevents duplicate registrations)
 - Creates payment record in NocoDB with user data
 - Polls NocoDB every 10 seconds to check payment status
-- Admin commands: `/confirm <user_id>`, `/pending`
+- **State restoration:** Automatically restores polling for all users in `awaiting_payment` state on bot restart
 - Automatic payment confirmation when toggle is switched in NocoDB
+- All texts and config loaded dynamically from NocoDB
+- Built with declarative FlowBuilder API (~40 lines vs 232 lines imperative)
+- Supports graceful shutdown with Ctrl+C
+- **Admin notifications:** Sends state change notifications with NocoDB link to admins
 
 **agent.py** - Homework guardrail agent example using Anthropic Agents SDK
 **mcp-test.py** - LangChain + OpenAI integration
@@ -52,27 +80,95 @@ Environment file pattern: `Path(__file__).resolve().parent.parent / ".env"` for 
 pip install -r requirements.txt
 ```
 
-## Running Bots
+## Graceful Shutdown
+
+All bots support graceful shutdown on `SIGINT` (Ctrl+C) and `SIGTERM` signals:
+
+**Features:**
+- Handles `SIGINT` (Ctrl+C) and `SIGTERM` signals
+- Cancels all active polling/background tasks
+- Waits for tasks to complete cleanup
+- Properly stops and shuts down Telegram application
+- Clean exit without errors
+
+**Implementation:**
+
+- [bot_flow/core/executor.py](bot_flow/core/executor.py) - Cancels all polling tasks in flow executor
+- [bot_flow/flows/payment_flow.py](bot_flow/flows/payment_flow.py) - Payment check tasks stop gracefully
+
+**Testing:**
 
 ```bash
-# Payment bot
-python payment_bot.py
+python test_graceful_shutdown.py  # Test graceful shutdown demo
+# Press Ctrl+C to see graceful shutdown in action
+```
 
-# MCP test agent
-python mcp-test.py
+## Running Bots
 
-# Agent example
-python agent.py
+### Main Entry Point
+
+All bots can be run through the unified `main.py` entry point:
+
+```bash
+# Run payment bot (default)
+python main.py
+python main.py payment
+
+# Run homework agent
+python main.py agent
+
+# Run MCP test agent
+python main.py mcp-test
+
+# Generate flow visualization
+python main.py visualize
+
+# Check configuration status
+python main.py status
+
+# Show help
+python main.py help
+```
+
+### Direct Execution
+
+Individual bots can still be run directly:
+
+```bash
+python bot_flow/flows/payment_flow.py   # Payment bot (declarative flow)
+python agent.py                         # Agent example
+python mcp-test.py                      # MCP test
 ```
 
 ## Payment Bot Flow
 
-1. User sends `/start` → Welcome message with "Оплатить билет" button
-2. User clicks button → Bot creates record in NocoDB with user_id, username, first_name
-3. Payment info displayed (phone, amount), user added to `pending_payments`
-4. Background task polls NocoDB every 10 seconds checking the "paid" toggle field
-5. Admin switches toggle to true in NocoDB (https://app.nocodb.com/#/wux6zxnq/pwt37o18yvtfeh6/mfaob33z2nnrxve)
-6. Bot detects payment confirmation and sends success message with Telegram group link
+### Flow Logic
+
+```
+/start
+  ├─> Already Paid (if user registered AND paid)
+  │   └─> Show group link, END
+  │
+  ├─> Payment Pending (if user registered BUT NOT paid)
+  │   └─> "Waiting for confirmation" → Poll status → Success
+  │
+  └─> New User (not registered)
+      └─> Welcome → Click "Pay" → Payment Info → Poll status → Success
+```
+
+### Detailed Steps
+
+1. **User sends `/start`** → Bot checks if user is already registered in NocoDB
+2. **If registered AND paid** → Show "already paid" message with group link (END)
+3. **If registered BUT NOT paid** → Show "payment pending" message → Continue polling
+4. **If new user** → Show welcome message with "Оплатить билет" button
+5. User clicks button → Bot creates record in NocoDB with user_id, username, first_name
+6. Payment info displayed (phone, amount) with instructions
+7. Background task polls NocoDB every 10 seconds checking the "Paid" toggle field
+8. Admin switches toggle to true in NocoDB
+9. Bot detects payment confirmation and sends success message with Telegram group link
+
+**NocoDB Admin Panel:** <https://app.nocodb.com/#/wux6zxnq/pwt37o18yvtfeh6/mfaob33z2nnrxve>
 
 ## NocoDB Integration
 

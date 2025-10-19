@@ -3,19 +3,14 @@ Loader for bot configuration from NocoDB.
 
 This module provides functionality to load bot config values from NocoDB table mguawvnumqrb5k7.
 """
-import os
 import httpx
 from typing import Dict
-from pathlib import Path
-from dotenv import load_dotenv
+from config import config
 
-# Load environment
-env_file_path = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(env_file_path)
-
-NOCODB_API_URL = os.getenv("NOCODB_API_URL", "https://app.nocodb.com")
-NOCODB_API_TOKEN = os.getenv("NOCODB_API_TOKEN")
-CONFIG_TABLE_ID = "mguawvnumqrb5k7"
+# NocoDB configuration from centralized config
+NOCODB_API_URL = config.NOCODB_API_URL
+NOCODB_API_TOKEN = config.NOCODB_API_TOKEN
+CONFIG_TABLE_ID = config.NOCODB_CONFIG_TABLE_ID
 
 # Default config (fallback if NocoDB is not available)
 DEFAULT_CONFIG = {
@@ -31,10 +26,10 @@ async def load_config_from_nocodb() -> Dict[str, str]:
 
     Table schema:
         - action (string): config key
-        - msg (string): config value
+        - text (string): config value
 
     Returns:
-        Dict mapping action -> msg
+        Dict mapping action -> text
     """
     if not NOCODB_API_TOKEN:
         print("⚠️ NocoDB not configured, using default config")
@@ -60,9 +55,9 @@ async def load_config_from_nocodb() -> Dict[str, str]:
 
             for record in records:
                 action = record.get("action")
-                msg = record.get("msg")
-                if action and msg:
-                    config[action] = msg
+                text = record.get("text")
+                if action and text:
+                    config[action] = text
 
             print(f"✅ Loaded {len(config)} config values from NocoDB")
             return config

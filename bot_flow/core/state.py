@@ -153,10 +153,13 @@ class Flow:
                         f"State '{state_name}' polling on_true_goto points to non-existent state '{state.polling.on_true_goto}'"
                     )
 
-        # Check for unreachable states (except initial)
+        # Check for unreachable states (except initial and command-triggered states)
         reachable = self._find_reachable_states()
         for state_name in self.states:
-            if state_name not in reachable and state_name != self.initial_state:
+            state = self.states[state_name]
+            # Command-triggered states are valid entry points and don't need to be reachable
+            is_command_entry = state.trigger_type == TriggerType.COMMAND
+            if state_name not in reachable and state_name != self.initial_state and not is_command_entry:
                 errors.append(f"State '{state_name}' is unreachable")
 
         return errors

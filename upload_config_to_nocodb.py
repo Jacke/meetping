@@ -4,25 +4,20 @@ Script to upload bot config to NocoDB table mguawvnumqrb5k7.
 Usage:
     python upload_config_to_nocodb.py
 """
-import os
 import asyncio
 import httpx
-from pathlib import Path
-from dotenv import load_dotenv
+from config import config
 
-# Load environment
-env_file_path = Path(__file__).resolve().parent / ".env"
-load_dotenv(env_file_path)
+# NocoDB configuration from centralized config
+NOCODB_API_URL = config.NOCODB_API_URL
+NOCODB_API_TOKEN = config.NOCODB_API_TOKEN
+CONFIG_TABLE_ID = config.NOCODB_CONFIG_TABLE_ID
 
-NOCODB_API_URL = os.getenv("NOCODB_API_URL", "https://app.nocodb.com")
-NOCODB_API_TOKEN = os.getenv("NOCODB_API_TOKEN")
-CONFIG_TABLE_ID = "mguawvnumqrb5k7"
-
-# Config entries to upload
+# Config entries to upload (default values)
 CONFIG = {
-    "PAYMENT_PHONE": os.getenv("PAYMENT_PHONE", "+7 (999) 123-45-67"),
-    "PAYMENT_AMOUNT": os.getenv("PAYMENT_AMOUNT", "1000 рублей"),
-    "TELEGRAM_GROUP_LINK": os.getenv("TELEGRAM_GROUP_LINK", "https://t.me/your_group_link")
+    "PAYMENT_PHONE": "+7 (999) 123-45-67",
+    "PAYMENT_AMOUNT": "1000 рублей",
+    "TELEGRAM_GROUP_LINK": "https://t.me/your_group_link"
 }
 
 

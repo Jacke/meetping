@@ -4,15 +4,33 @@ START -> welcome
 
 [welcome]
   Trigger: /start
+  Actions: reload_texts_and_config
+  Polling: every 1s
+    -> route_user (on success)
+
+[route_user]
+  Polling: every 1s
+    -> already_paid (on success)
+
+[show_welcome]
   Message: 👋 Добро пожаловать, {user.first_name}!  🎉 Это бот ...
   Buttons:
-    - 💳 Оплатить билет -> payment_info
+    - 💳 Оплатить билет на мероприятие -> payment_info
   Transitions:
     pay_ticket -> payment_info
 
+[payment_pending]
+  Message: ⏳ <b>Ожидаем подтверждение вашей оплаты</b>  Мы ви...
+  Auto -> awaiting_payment
+
+[already_paid]
+  Message: ✅ <b>Вы уже зарегистрированы на мероприятие!</b>  ...
+  [FINAL]
+
 [payment_info]
   Trigger: pay_ticket
-  Message: 💰 Информация для оплаты......
+  Message: 💰 <b>Информация для оплаты:</b>  📱 Номер телефона:...
+  Actions: create_payment_record
   Auto -> awaiting_payment
 
 [awaiting_payment]
@@ -20,5 +38,5 @@ START -> welcome
     -> success (on success)
 
 [success]
-  Message: ✅ Оплата подтверждена! 🎊...
+  Message: ✅ <b>Оплата подтверждена!</b>🎊 Поздравляем! Ваш би...
   [FINAL]

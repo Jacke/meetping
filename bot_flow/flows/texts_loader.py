@@ -3,19 +3,14 @@ Loader for bot texts from NocoDB.
 
 This module provides functionality to load bot text strings from NocoDB table pwt37o18yvtfeh6.
 """
-import os
 import httpx
 from typing import Dict
-from pathlib import Path
-from dotenv import load_dotenv
+from config import config
 
-# Load environment
-env_file_path = Path(__file__).resolve().parent.parent.parent / ".env"
-load_dotenv(env_file_path)
-
-NOCODB_API_URL = os.getenv("NOCODB_API_URL", "https://app.nocodb.com")
-NOCODB_API_TOKEN = os.getenv("NOCODB_API_TOKEN")
-TEXTS_TABLE_ID = "mguawvnumqrb5k7"
+# NocoDB configuration from centralized config
+NOCODB_API_URL = config.NOCODB_API_URL
+NOCODB_API_TOKEN = config.NOCODB_API_TOKEN
+TEXTS_TABLE_ID = config.NOCODB_TEXTS_TABLE_ID
 
 # Default texts (fallback if NocoDB is not available)
 DEFAULT_TEXTS = {
