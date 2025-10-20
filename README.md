@@ -137,6 +137,8 @@ python3 bot_flow/flows/payment_flow.py
 
 ### User Flow
 
+#### Упрощённая схема
+
 ```mermaid
 stateDiagram-v2
     [*] --> welcome
@@ -147,7 +149,48 @@ stateDiagram-v2
     success --> [*]
 ```
 
-См. [docs/payment_flow.md](docs/payment_flow.md) для полной визуализации.
+#### Детальная визуализация
+
+![Payment Flow Diagram](docs/payment_flow_detailed.png)
+
+<details>
+<summary>Показать Mermaid код</summary>
+
+```mermaid
+flowchart TB
+    START([👤 User /start]) --> CHECK_USER{Проверка<br/>регистрации}
+
+    CHECK_USER -->|Зарегистрирован<br/>И оплатил| ALREADY_PAID[✅ Уже оплачено<br/>Ссылка на группу]
+    CHECK_USER -->|Зарегистрирован<br/>НЕ оплатил| PAYMENT_PENDING[⏳ Ожидание оплаты]
+    CHECK_USER -->|Новый пользователь| WELCOME[👋 Приветствие]
+
+    WELCOME --> PAYMENT_BTN{Нажата кнопка<br/>Оплатить?}
+    PAYMENT_BTN -->|Да| CREATE_RECORD[📝 Создать запись<br/>в NocoDB]
+
+    CREATE_RECORD --> PAYMENT_INFO[💰 Информация<br/>для оплаты]
+    PAYMENT_INFO --> POLLING_START[🔄 Запуск<br/>polling]
+    PAYMENT_PENDING --> POLLING_START
+
+    POLLING_START --> POLL_CHECK{Проверка статуса<br/>каждые 10 сек}
+    POLL_CHECK -->|Paid = false| POLL_CHECK
+    POLL_CHECK -->|Paid = true| SUCCESS[🎊 Успех!<br/>Ссылка на группу]
+
+    ALREADY_PAID --> END([Конец])
+    SUCCESS --> END
+
+    style START fill:#90EE90
+    style SUCCESS fill:#FFD700
+    style ALREADY_PAID fill:#87CEEB
+    style POLL_CHECK fill:#FFA07A
+    style CREATE_RECORD fill:#DDA0DD
+    style END fill:#90EE90
+```
+
+</details>
+
+📚 **Дополнительная документация:**
+- [Детальное описание flow с примерами](docs/payment_flow_detailed.md)
+- [Техническая диаграмма состояний](docs/payment_flow.md)
 
 ---
 
@@ -298,6 +341,31 @@ python3 bot_flow/examples/demo.py visualize
 - 🌐 `docs/payment_flow.dot` - GraphViz DOT
 - 📝 `docs/payment_flow.txt` - ASCII diagram
 
+### Генерация PNG диаграмм
+
+Для создания PNG изображений из Mermaid диаграмм:
+
+```bash
+# Метод 1: Через Kroki.io API (рекомендуется, не требует установки)
+python3 generate_flow_png.py --method api
+
+# Метод 2: Через mermaid-cli (требует npm)
+npm install -g @mermaid-js/mermaid-cli
+python3 generate_flow_png.py --method cli
+
+# Метод 3: Показать инструкции для ручной генерации
+python3 generate_flow_png.py --method manual
+
+# Кастомные пути
+python3 generate_flow_png.py \
+  --input docs/payment_flow_detailed.md \
+  --output docs/payment_flow_detailed.png
+```
+
+**Доступные диаграммы:**
+- 🖼️ `docs/payment_flow.png` - Базовая диаграмма состояний
+- 🎨 `docs/payment_flow_detailed.png` - Детальная flowchart схема
+
 ---
 
 ## 🛠️ Утилиты
@@ -322,6 +390,30 @@ python3 visualize_payment_flow.py
 # → docs/payment_flow.md
 # → docs/payment_flow.dot
 # → docs/payment_flow.txt
+```
+
+### generate_flow_png.py - генератор PNG изображений
+
+```bash
+# Генерация PNG из Mermaid диаграмм
+python3 generate_flow_png.py [options]
+
+Options:
+  --method {cli|api|manual}  # Метод генерации (default: api)
+  --input FILE               # Входной .md файл (default: docs/payment_flow.md)
+  --output FILE              # Выходной .png файл (default: docs/payment_flow.png)
+
+Examples:
+  # Использовать Kroki.io API (рекомендуется)
+  python3 generate_flow_png.py --method api
+
+  # Использовать mermaid-cli
+  python3 generate_flow_png.py --method cli
+
+  # Генерация детальной диаграммы
+  python3 generate_flow_png.py \
+    --input docs/payment_flow_detailed.md \
+    --output docs/payment_flow_detailed.png
 ```
 
 ---
