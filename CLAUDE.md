@@ -33,16 +33,19 @@ All environment variables are centralized in `config.py` module. Variables are l
   - `Price` - Ticket price
   - `Paid` - Payment status (boolean/toggle)
 - **Bot Texts & Config** (`mguawvnumqrb5k7`) - Stores all bot messages and configuration (action -> text)
-  - **Text Messages** (lowercase action):
+  - **Text Messages** (lowercase action) - ⚠️ REQUIRED:
     - `welcome_message` - Welcome message with {user.first_name} placeholder
     - `pay_button` - Payment button text
     - `payment_info` - Payment instructions with {PAYMENT_PHONE} and {PAYMENT_AMOUNT} placeholders
     - `success_message` - Success message with {TELEGRAM_GROUP_LINK} placeholder
     - `already_registered_message` - Message for users who already registered
-  - **Configuration** (uppercase action):
+  - **Configuration** (uppercase action) - ⚠️ REQUIRED:
     - `PAYMENT_PHONE` - Phone number for payment transfers
     - `PAYMENT_AMOUNT` - Ticket price
     - `TELEGRAM_GROUP_LINK` - Event group invitation link
+
+⚠️ **IMPORTANT:** All 8 constants above are REQUIRED. Bot will not start if any are missing.
+See [REQUIRED_CONSTANTS.md](REQUIRED_CONSTANTS.md) for detailed documentation.
 
 ### Configuration Module
 All bots import configuration from centralized `config.py`:
@@ -65,7 +68,8 @@ NOCODB_API_TOKEN = config.NOCODB_API_TOKEN
 - Polls NocoDB every 10 seconds to check payment status
 - **State restoration:** Automatically restores polling for all users in `awaiting_payment` state on bot restart
 - Automatic payment confirmation when toggle is switched in NocoDB
-- All texts and config loaded dynamically from NocoDB
+- **Startup validation:** Validates all required texts and config from NocoDB at startup
+- All texts and config loaded dynamically from NocoDB (no default values)
 - Built with declarative FlowBuilder API (~40 lines vs 232 lines imperative)
 - Supports graceful shutdown with Ctrl+C
 - **Admin notifications:** Sends state change notifications with NocoDB link to admins

@@ -35,9 +35,10 @@ async def create_payment_record(ctx: FlowContext) -> None:
         "Content-Type": "application/json"
     }
 
-    # Get payment amount from config
-    payment_amount = CONFIG.get("PAYMENT_AMOUNT", "1000 рублей")
-    price = int(payment_amount.split()[0]) if payment_amount else 1000
+    # Get payment amount from config (validated at startup, no default needed)
+    payment_amount = CONFIG["PAYMENT_AMOUNT"]
+    # Extract numeric value from string like "1000 рублей"
+    price = int(payment_amount.split()[0])
 
     data = {
         "TG": ctx.user.username or "",
@@ -308,21 +309,26 @@ async def build_payment_flow() -> 'Flow':
     - payment_info: Payment instructions (for new users)
     - awaiting_payment: Polling for payment confirmation
     - success: Payment confirmed
+
+    Raises:
+        ValueError: If required texts or config are missing in NocoDB
     """
-    # Load texts and config from NocoDB
+    # Load texts and config from NocoDB (will raise ValueError if validation fails)
     global TEXTS, CONFIG
+    print("\n📥 Loading texts and config from NocoDB...")
     TEXTS = await load_texts_from_nocodb()
     CONFIG = await load_config_from_nocodb()
+    print("✅ Texts and config validated successfully\n")
 
-    # Format payment_info with actual values from config
-    payment_info_text = TEXTS.get("payment_info", "").format(
-        PAYMENT_PHONE=CONFIG.get("PAYMENT_PHONE", "+7 (999) 123-45-67"),
-        PAYMENT_AMOUNT=CONFIG.get("PAYMENT_AMOUNT", "1000 рублей")
+    # Format payment_info with actual values from config (no defaults)
+    payment_info_text = TEXTS["payment_info"].format(
+        PAYMENT_PHONE=CONFIG["PAYMENT_PHONE"],
+        PAYMENT_AMOUNT=CONFIG["PAYMENT_AMOUNT"]
     )
 
-    # Format success message with group link from config
-    success_text = TEXTS.get("success_message", "").format(
-        TELEGRAM_GROUP_LINK=CONFIG.get("TELEGRAM_GROUP_LINK", "https://t.me/your_group_link")
+    # Format success message with group link from config (no defaults)
+    success_text = TEXTS["success_message"].format(
+        TELEGRAM_GROUP_LINK=CONFIG["TELEGRAM_GROUP_LINK"]
     )
 
     flow = (
@@ -350,9 +356,9 @@ async def build_payment_flow() -> 'Flow':
         # State: Show Welcome (for new users)
         # ====================================================================
         .state("show_welcome")
-            .reply(TEXTS.get("welcome_message", ""))
+            .reply(TEXTS["welcome_message"])
             .button(
-                TEXTS.get("pay_button", "💳 Оплатить билет"),
+                TEXTS["pay_button"],
                 callback_data="pay_ticket",
                 goto="payment_info"
             )
@@ -370,11 +376,8 @@ async def build_payment_flow() -> 'Flow':
         # ====================================================================
         .state("already_paid")
             .reply(
-                TEXTS.get("already_registered_message",
-                         "✅ <b>Вы уже оплатили билет!</b>\n\n"
-                         "👥 Ссылка на группу мероприятия:\n{TELEGRAM_GROUP_LINK}\n\n"
-                         "До встречи на мероприятии! 🎉").format(
-                    TELEGRAM_GROUP_LINK=CONFIG.get("TELEGRAM_GROUP_LINK", "https://t.me/your_group_link")
+                TEXTS["already_registered_message"].format(
+                    TELEGRAM_GROUP_LINK=CONFIG["TELEGRAM_GROUP_LINK"]
                 ),
                 parse_mode="HTML"
             )
@@ -430,18 +433,22 @@ def main():
     if len(sys.argv) > 1 and sys.argv[1] == "visualize":
         async def visualize_flow():
             from bot_flow.core import visualize
-            flow = await build_payment_flow()
-            visualizer = visualize(flow)
+            try:
+                flow = await build_payment_flow()
+                visualizer = visualize(flow)
 
-            # Export all formats
-            visualizer.export_mermaid("docs/payment_flow.md")
-            visualizer.export_graphviz("docs/payment_flow.dot")
-            visualizer.export_ascii("docs/payment_flow.txt")
+                # Export all formats
+                visualizer.export_mermaid("docs/payment_flow.md")
+                visualizer.export_graphviz("docs/payment_flow.dot")
+                visualizer.export_ascii("docs/payment_flow.txt")
 
-            print("\n📊 Visualization exported!")
-            print("   - docs/payment_flow.md (Mermaid)")
-            print("   - docs/payment_flow.dot (GraphViz)")
-            print("   - docs/payment_flow.txt (ASCII)")
+                print("\n📊 Visualization exported!")
+                print("   - docs/payment_flow.md (Mermaid)")
+                print("   - docs/payment_flow.dot (GraphViz)")
+                print("   - docs/payment_flow.txt (ASCII)")
+            except ValueError as e:
+                print(f"\n{e}")
+                sys.exit(1)
 
         asyncio.run(visualize_flow())
         return
@@ -452,14 +459,15 @@ def main():
     BOT_TOKEN = config.BOT_TOKEN
     if not BOT_TOKEN:
         print("❌ BOT_TOKEN not found in .env file!")
-        return
+        sys.exit(1)
 
-    if not NOCODB_API_TOKEN or not NOCODB_TABLE_ID:
-        print("⚠️ NocoDB not configured. Working in local mode.")
-        print("   Add NOCODB_API_TOKEN and NOCODB_TABLE_ID to .env for full functionality")
-
-    # Build flow (loads texts from NocoDB) - run in asyncio
-    flow = asyncio.run(build_payment_flow())
+    # Build flow (loads texts from NocoDB with validation) - run in asyncio
+    try:
+        flow = asyncio.run(build_payment_flow())
+    except ValueError as e:
+        print(f"\n{e}")
+        print("\n❌ Bot cannot start without required configuration!")
+        sys.exit(1)
 
     # Load users awaiting payment from NocoDB
     print("\n📥 Loading users in awaiting_payment state from NocoDB...")

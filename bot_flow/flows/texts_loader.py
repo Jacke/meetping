@@ -4,7 +4,7 @@ Loader for bot texts from NocoDB.
 This module provides functionality to load bot text strings from NocoDB table pwt37o18yvtfeh6.
 """
 import httpx
-from typing import Dict
+from typing import Dict, List
 from config import config
 
 # NocoDB configuration from centralized config
@@ -12,29 +12,56 @@ NOCODB_API_URL = config.NOCODB_API_URL
 NOCODB_API_TOKEN = config.NOCODB_API_TOKEN
 TEXTS_TABLE_ID = config.NOCODB_TEXTS_TABLE_ID
 
-# Default texts (fallback if NocoDB is not available)
-DEFAULT_TEXTS = {
-    "welcome_message": "👋 Добро пожаловать, {user.first_name}!\n\n🎉 Это бот для регистрации и оплаты билетов на наше мероприятие.\n\nНажмите на кнопку ниже, чтобы начать процесс оплаты.",
-    "pay_button": "💳 Оплатить билет на мероприятие",
-    "payment_info": "💰 <b>Информация для оплаты:</b>\n\n📱 Номер телефона: <code>{PAYMENT_PHONE}</code>\n💵 Сумма: <b>{PAYMENT_AMOUNT}</b>\n\n📋 <b>Инструкция:</b>\n1. Переведите указанную сумму на номер телефона\n2. Дождитесь подтверждения оплаты\n3. После подтверждения вы получите доступ к группе мероприятия\n\n⏳ Ожидаем подтверждения оплаты...",
-    "success_message": "✅ <b>Оплата подтверждена!</b>\n\n🎊 Поздравляем! Ваш билет успешно оплачен.\n\n👥 Присоединяйтесь к нашей группе:\n{TELEGRAM_GROUP_LINK}\n\nДо встречи на мероприятии! 🎉"
-}
+# Required text keys that MUST be present in NocoDB
+REQUIRED_TEXT_KEYS = [
+    "welcome_message",
+    "pay_button",
+    "payment_info",
+    "success_message",
+    "already_registered_message"
+]
+
+
+def validate_texts(texts: Dict[str, str]) -> None:
+    """
+    Validate that all required text keys are present.
+
+    Raises:
+        ValueError: If any required keys are missing
+    """
+    missing_keys = [key for key in REQUIRED_TEXT_KEYS if key not in texts]
+
+    if missing_keys:
+        raise ValueError(
+            f"❌ Missing required text constants in NocoDB:\n"
+            f"   {', '.join(missing_keys)}\n\n"
+            f"Please add these text entries to NocoDB table (action column):\n"
+            f"   Table URL: {NOCODB_API_URL}/#/nc/{TEXTS_TABLE_ID}\n"
+        )
 
 
 async def load_texts_from_nocodb() -> Dict[str, str]:
     """
     Load all text strings from NocoDB table pwt37o18yvtfeh6.
 
+    Validates that all required text keys are present.
+    Bot will not start if any required texts are missing.
+
     Table schema:
-        - action (string): text ID/key
+        - action (string): text ID/key (lowercase)
         - text (string): text content
 
     Returns:
         Dict mapping action -> text
+
+    Raises:
+        ValueError: If required texts are missing or NocoDB is not configured
     """
-    if not NOCODB_API_TOKEN:
-        print("⚠️ NocoDB not configured, using default texts")
-        return DEFAULT_TEXTS.copy()
+    if not NOCODB_API_TOKEN or not TEXTS_TABLE_ID:
+        raise ValueError(
+            "❌ NocoDB not configured!\n"
+            "   Please set NOCODB_API_TOKEN and NOCODB_TEXTS_TABLE_ID in .env file"
+        )
 
     headers = {
         "xc-token": NOCODB_API_TOKEN
@@ -61,12 +88,20 @@ async def load_texts_from_nocodb() -> Dict[str, str]:
                     texts[action] = text
 
             print(f"✅ Loaded {len(texts)} texts from NocoDB")
+
+            # Validate all required keys are present
+            validate_texts(texts)
+            print(f"✅ All required text constants validated")
+
             return texts
 
+    except httpx.HTTPError as e:
+        raise ValueError(
+            f"❌ Error loading texts from NocoDB: {e}\n"
+            f"   Please check your NOCODB_API_TOKEN and NOCODB_TEXTS_TABLE_ID"
+        ) from e
     except Exception as e:
-        print(f"❌ Error loading texts from NocoDB: {e}")
-        print("⚠️ Using default texts as fallback")
-        return DEFAULT_TEXTS.copy()
+        raise ValueError(f"❌ Unexpected error loading texts: {e}") from e
 
 
 def load_texts_sync() -> Dict[str, str]:
