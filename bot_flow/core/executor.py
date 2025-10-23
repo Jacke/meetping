@@ -193,9 +193,10 @@ class FlowExecutor:
         if state.on_enter:
             await state.on_enter(flow_ctx)
 
-        # Execute sequential actions
-        for action in state.actions:
-            await action(flow_ctx)
+        # Execute sequential actions (skip if state expects MESSAGE, actions will run on message receipt)
+        if state.trigger_type != TriggerType.MESSAGE:
+            for action in state.actions:
+                await action(flow_ctx)
 
         # Send message if defined
         if state.message:
@@ -315,7 +316,11 @@ class FlowExecutor:
                 flow_ctx = FlowContext(update, context, self.flow)
                 flow_ctx.set('message_text', message_text)
 
-                # If there's an auto_transition, go to that state
+                # Execute actions first
+                for action in current_state.actions:
+                    await action(flow_ctx)
+
+                # Then handle transition
                 if current_state.auto_transition:
                     await self.transition_to(user_id, current_state.auto_transition, flow_ctx)
                     return

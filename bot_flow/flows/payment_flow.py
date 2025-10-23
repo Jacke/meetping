@@ -315,13 +315,12 @@ async def build_payment_flow() -> 'Flow':
         welcome
           ├─> already_paid (if user registered AND paid)
           ├─> payment_pending -> awaiting_payment (if user registered BUT NOT paid)
-          └─> show_welcome -> ask_fullname -> collect_fullname -> payment_info -> awaiting_payment -> success (if new user)
+          └─> show_welcome -> ask_fullname -> payment_info -> awaiting_payment -> success (if new user)
 
     States:
     - welcome: Check registration status
     - show_welcome: New user welcome with payment button
-    - ask_fullname: Ask user for their full name (Фамилия и Имя)
-    - collect_fullname: Collect full name from message text
+    - ask_fullname: Ask user for full name, wait for message, save to NocoDB
     - payment_pending: User started payment but hasn't completed (shows payment instructions)
     - already_paid: User already completed payment
     - payment_info: Create payment record and show payment instructions
@@ -382,17 +381,10 @@ async def build_payment_flow() -> 'Flow':
             )
 
         # ====================================================================
-        # State: Ask Full Name (collect user's full name)
+        # State: Ask Full Name (shows prompt and waits for message)
         # ====================================================================
         .state("ask_fullname")
-            .on_callback("pay_ticket")
             .reply("📝 Пожалуйста, напишите ваши Фамилию и Имя:")
-            .transition(to="collect_fullname")
-
-        # ====================================================================
-        # State: Collect Full Name (receives message with full name)
-        # ====================================================================
-        .state("collect_fullname")
             .on_message()
             .action(save_fullname_from_message)
             .transition(to="payment_info")

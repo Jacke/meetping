@@ -11,9 +11,8 @@ stateDiagram-v2
     route_user --> already_paid: check passed (1s)
     route_user --> route_user: polling...
     show_welcome --> ask_fullname: click '💳 Оплатить билет на мероприятие'
-    ask_fullname --> collect_fullname: auto
-    collect_fullname --> payment_info: auto
-    note right of collect_fullname
+    ask_fullname --> payment_info: auto
+    note right of ask_fullname
         Actions:\nsave_fullname_from_message
     end note
     payment_pending --> awaiting_payment: auto

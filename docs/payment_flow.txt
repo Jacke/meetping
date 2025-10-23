@@ -20,11 +20,7 @@ START -> welcome
     pay_ticket -> ask_fullname
 
 [ask_fullname]
-  Trigger: pay_ticket
   Message: 📝 Пожалуйста, напишите ваши Фамилию и Имя:...
-  Auto -> collect_fullname
-
-[collect_fullname]
   Actions: save_fullname_from_message
   Auto -> payment_info
 

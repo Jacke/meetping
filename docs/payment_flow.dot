@@ -13,9 +13,7 @@ digraph BotFlow {
     show_welcome [label="show_welcome\n"👋 Добро пожаловать, {user.firs..."", shape=box, style="rounded,filled", fillcolor=lightgray];
     show_welcome -> ask_fullname [label="click '💳 Оплатить билет на мероприятие'"];
     ask_fullname [label="ask_fullname\n"📝 Пожалуйста, напишите ваши Фа..."", shape=box, style="rounded,filled", fillcolor=lightgray];
-    ask_fullname -> collect_fullname [style=dashed];
-    collect_fullname [label="collect_fullname", shape=box, style="rounded,filled", fillcolor=lightgray];
-    collect_fullname -> payment_info [style=dashed];
+    ask_fullname -> payment_info [style=dashed];
     payment_pending [label="payment_pending\n"💰 <b>Информация для оплаты:</b..."", shape=box, style="rounded,filled", fillcolor=lightgray];
     payment_pending -> awaiting_payment [style=dashed];
     already_paid [label="already_paid\n"✅ <b>Вы уже зарегистрированы н..."", shape=doublecircle, style=filled, fillcolor=lightblue];
