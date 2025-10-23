@@ -381,12 +381,13 @@ async def build_payment_flow() -> 'Flow':
             )
 
         # ====================================================================
-        # State: Ask Full Name (shows prompt and waits for message)
+        # State: Ask Full Name (shows prompt, waits for message, creates record)
         # ====================================================================
         .state("ask_fullname")
             .reply("📝 Пожалуйста, напишите ваши Фамилию и Имя:")
             .on_message()
             .action(save_fullname_from_message)
+            .action(create_payment_record)
             .transition(to="payment_info")
 
         # ====================================================================
@@ -413,7 +414,6 @@ async def build_payment_flow() -> 'Flow':
         # State: Payment Info
         # ====================================================================
         .state("payment_info")
-            .action(create_payment_record)
             .reply(payment_info_text, parse_mode="HTML")
             .transition(to="awaiting_payment")
 

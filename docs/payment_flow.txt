@@ -21,7 +21,7 @@ START -> welcome
 
 [ask_fullname]
   Message: 📝 Пожалуйста, напишите ваши Фамилию и Имя:...
-  Actions: save_fullname_from_message
+  Actions: save_fullname_from_message, create_payment_record
   Auto -> payment_info
 
 [payment_pending]
@@ -34,7 +34,6 @@ START -> welcome
 
 [payment_info]
   Message: 💰 <b>Информация для оплаты:</b>  📱 Номер телефона:...
-  Actions: create_payment_record
   Auto -> awaiting_payment
 
 [awaiting_payment]

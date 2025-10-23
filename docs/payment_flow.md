@@ -13,14 +13,11 @@ stateDiagram-v2
     show_welcome --> ask_fullname: click '💳 Оплатить билет на мероприятие'
     ask_fullname --> payment_info: auto
     note right of ask_fullname
-        Actions:\nsave_fullname_from_message
+        Actions:\nsave_fullname_from_message\ncreate_payment_record
     end note
     payment_pending --> awaiting_payment: auto
     already_paid --> [*]
     payment_info --> awaiting_payment: auto
-    note right of payment_info
-        Actions:\ncreate_payment_record
-    end note
     awaiting_payment --> success: check passed (10s)
     awaiting_payment --> awaiting_payment: polling...
     success --> [*]
