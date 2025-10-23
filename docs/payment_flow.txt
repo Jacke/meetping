@@ -15,12 +15,21 @@ START -> welcome
 [show_welcome]
   Message: 👋 Добро пожаловать, {user.first_name}!  🎉 Это бот ...
   Buttons:
-    - 💳 Оплатить билет на мероприятие -> payment_info
+    - 💳 Оплатить билет на мероприятие -> ask_fullname
   Transitions:
-    pay_ticket -> payment_info
+    pay_ticket -> ask_fullname
+
+[ask_fullname]
+  Trigger: pay_ticket
+  Message: 📝 Пожалуйста, напишите ваши Фамилию и Имя:...
+  Auto -> collect_fullname
+
+[collect_fullname]
+  Actions: save_fullname_from_message
+  Auto -> payment_info
 
 [payment_pending]
-  Message: ⏳ <b>Ожидаем подтверждение вашей оплаты</b>  Мы ви...
+  Message: 💰 <b>Информация для оплаты:</b>  📱 Номер телефона:...
   Auto -> awaiting_payment
 
 [already_paid]
@@ -28,7 +37,6 @@ START -> welcome
   [FINAL]
 
 [payment_info]
-  Trigger: pay_ticket
   Message: 💰 <b>Информация для оплаты:</b>  📱 Номер телефона:...
   Actions: create_payment_record
   Auto -> awaiting_payment
@@ -39,4 +47,9 @@ START -> welcome
 
 [success]
   Message: ✅ <b>Оплата подтверждена!</b>🎊 Поздравляем! Ваш би...
+  [FINAL]
+
+[stats]
+  Trigger: /stats
+  Actions: get_statistics
   [FINAL]

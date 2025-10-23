@@ -301,6 +301,27 @@ class FlowExecutor:
 
         print(f"⚠️ No transition found for callback '{callback_data}' in state '{current_state_name}'")
 
+    async def _handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Handle text message"""
+        user_id = update.effective_user.id
+        message_text = update.message.text
+
+        # Find current state and check if it expects a message
+        current_state_name = self.user_states.get(user_id)
+        if current_state_name:
+            current_state = self.flow.get_state(current_state_name)
+            if current_state and current_state.trigger_type == TriggerType.MESSAGE:
+                # Create flow context with the message
+                flow_ctx = FlowContext(update, context, self.flow)
+                flow_ctx.set('message_text', message_text)
+
+                # If there's an auto_transition, go to that state
+                if current_state.auto_transition:
+                    await self.transition_to(user_id, current_state.auto_transition, flow_ctx)
+                    return
+
+        print(f"⚠️ No message handler for user {user_id} in state '{current_state_name}'")
+
     def _register_handlers(self) -> None:
         """Register telegram handlers based on flow states"""
         for state_name, state in self.flow.states.items():
@@ -317,6 +338,11 @@ class FlowExecutor:
         callback_handler = CallbackQueryHandler(self._handle_callback)
         self.application.add_handler(callback_handler)
         print(f"✅ Registered callback query handler")
+
+        # Register message handler (handles text messages)
+        message_handler = MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_message)
+        self.application.add_handler(message_handler)
+        print(f"✅ Registered message handler")
 
     async def _setup_bot_commands(self) -> None:
         """Setup bot commands menu in Telegram"""

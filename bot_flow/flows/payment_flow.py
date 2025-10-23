@@ -23,6 +23,18 @@ CONFIG = {}
 # Actions - Business logic functions
 # ============================================================================
 
+async def save_fullname_from_message(ctx: FlowContext) -> None:
+    """Save user's full name from message text to context"""
+    message_text = ctx.get('message_text', '').strip()
+    if message_text:
+        ctx.set('fullname', message_text)
+        print(f"✅ Saved fullname for user {ctx.user.id}: {message_text}")
+    else:
+        # If no text provided, use Telegram first name as fallback
+        ctx.set('fullname', ctx.user.first_name or "Unknown")
+        print(f"⚠️ No fullname provided, using fallback: {ctx.user.first_name}")
+
+
 async def create_payment_record(ctx: FlowContext) -> None:
     """Create payment record in NocoDB and store record_id in context"""
     if not NOCODB_API_TOKEN or not NOCODB_TABLE_ID:
@@ -40,9 +52,13 @@ async def create_payment_record(ctx: FlowContext) -> None:
     # Extract numeric value from string like "1000 рублей"
     price = int(payment_amount.split()[0])
 
+    # Get fullname from context (saved from message)
+    fullname = ctx.get('fullname', ctx.user.first_name or "Unknown")
+
     data = {
         "TG": ctx.user.username or "",
         "TG ID": ctx.user.id,
+        "FullName": fullname,
         "Price": price,
         "Paid": False
     }
@@ -59,7 +75,7 @@ async def create_payment_record(ctx: FlowContext) -> None:
             result = response.json()
             record_id = str(result.get("Id") or result.get("id"))
             ctx.set('record_id', record_id)
-            print(f"✅ Created NocoDB record: {record_id} for user {ctx.user.id}")
+            print(f"✅ Created NocoDB record: {record_id} for user {ctx.user.id} ({fullname})")
     except Exception as e:
         print(f"❌ Error creating NocoDB record: {e}")
         ctx.set('record_id', None)
@@ -299,14 +315,16 @@ async def build_payment_flow() -> 'Flow':
         welcome
           ├─> already_paid (if user registered AND paid)
           ├─> payment_pending -> awaiting_payment (if user registered BUT NOT paid)
-          └─> show_welcome -> payment_info -> awaiting_payment -> success (if new user)
+          └─> show_welcome -> ask_fullname -> collect_fullname -> payment_info -> awaiting_payment -> success (if new user)
 
     States:
     - welcome: Check registration status
     - show_welcome: New user welcome with payment button
+    - ask_fullname: Ask user for their full name (Фамилия и Имя)
+    - collect_fullname: Collect full name from message text
     - payment_pending: User started payment but hasn't completed (shows payment instructions)
     - already_paid: User already completed payment
-    - payment_info: Payment instructions (for new users)
+    - payment_info: Create payment record and show payment instructions
     - awaiting_payment: Polling for payment confirmation
     - success: Payment confirmed
 
@@ -360,8 +378,24 @@ async def build_payment_flow() -> 'Flow':
             .button(
                 TEXTS["pay_button"],
                 callback_data="pay_ticket",
-                goto="payment_info"
+                goto="ask_fullname"
             )
+
+        # ====================================================================
+        # State: Ask Full Name (collect user's full name)
+        # ====================================================================
+        .state("ask_fullname")
+            .on_callback("pay_ticket")
+            .reply("📝 Пожалуйста, напишите ваши Фамилию и Имя:")
+            .transition(to="collect_fullname")
+
+        # ====================================================================
+        # State: Collect Full Name (receives message with full name)
+        # ====================================================================
+        .state("collect_fullname")
+            .on_message()
+            .action(save_fullname_from_message)
+            .transition(to="payment_info")
 
         # ====================================================================
         # State: Payment Pending (user registered but not paid)
@@ -387,7 +421,6 @@ async def build_payment_flow() -> 'Flow':
         # State: Payment Info
         # ====================================================================
         .state("payment_info")
-            .on_callback("pay_ticket")
             .action(create_payment_record)
             .reply(payment_info_text, parse_mode="HTML")
             .transition(to="awaiting_payment")

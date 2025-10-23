@@ -4,12 +4,26 @@ digraph BotFlow {
 
     START [label="Start", shape=circle, style=filled, fillcolor=green];
     START -> welcome;
-    welcome [label="welcome\n"👋 Добро пожаловать, {user.firs..."", shape=box, style="rounded,filled", fillcolor=lightgray];
-    welcome -> payment_info [label="click '💳 Оплатить билет'"];
-    payment_info [label="payment_info\n"💰 Информация для оплаты......"", shape=box, style="rounded,filled", fillcolor=lightgray];
+    welcome [label="welcome", shape=diamond, style=filled, fillcolor=yellow];
+    welcome -> route_user [label="check passed", color=green];
+    welcome -> welcome [label="poll 1s", color=gray, style=dashed];
+    route_user [label="route_user", shape=diamond, style=filled, fillcolor=yellow];
+    route_user -> already_paid [label="check passed", color=green];
+    route_user -> route_user [label="poll 1s", color=gray, style=dashed];
+    show_welcome [label="show_welcome\n"👋 Добро пожаловать, {user.firs..."", shape=box, style="rounded,filled", fillcolor=lightgray];
+    show_welcome -> ask_fullname [label="click '💳 Оплатить билет на мероприятие'"];
+    ask_fullname [label="ask_fullname\n"📝 Пожалуйста, напишите ваши Фа..."", shape=box, style="rounded,filled", fillcolor=lightgray];
+    ask_fullname -> collect_fullname [style=dashed];
+    collect_fullname [label="collect_fullname", shape=box, style="rounded,filled", fillcolor=lightgray];
+    collect_fullname -> payment_info [style=dashed];
+    payment_pending [label="payment_pending\n"💰 <b>Информация для оплаты:</b..."", shape=box, style="rounded,filled", fillcolor=lightgray];
+    payment_pending -> awaiting_payment [style=dashed];
+    already_paid [label="already_paid\n"✅ <b>Вы уже зарегистрированы н..."", shape=doublecircle, style=filled, fillcolor=lightblue];
+    payment_info [label="payment_info\n"💰 <b>Информация для оплаты:</b..."", shape=box, style="rounded,filled", fillcolor=lightgray];
     payment_info -> awaiting_payment [style=dashed];
     awaiting_payment [label="awaiting_payment", shape=diamond, style=filled, fillcolor=yellow];
     awaiting_payment -> success [label="check passed", color=green];
     awaiting_payment -> awaiting_payment [label="poll 10s", color=gray, style=dashed];
-    success [label="success\n"✅ Оплата подтверждена! 🎊..."", shape=doublecircle, style=filled, fillcolor=lightblue];
+    success [label="success\n"✅ <b>Оплата подтверждена!</b>🎊..."", shape=doublecircle, style=filled, fillcolor=lightblue];
+    stats [label="stats", shape=doublecircle, style=filled, fillcolor=lightblue];
 }
