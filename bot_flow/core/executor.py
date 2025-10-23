@@ -500,8 +500,26 @@ class FlowExecutor:
                 if result and polling.on_true_goto:
                     # Payment confirmed!
                     print(f"✅ Payment confirmed for user {user_id}")
-                    # We can't transition without full context, so just remove from polling
+
+                    # Update state to success
                     self.user_states[user_id] = "success"
+
+                    # Send success message to user
+                    success_state = self.flow.states.get("success")
+                    if success_state and success_state.message:
+                        try:
+                            # Format message (handle placeholders like {TELEGRAM_GROUP_LINK})
+                            message_text = success_state.message
+
+                            await self.application.bot.send_message(
+                                chat_id=user_id,
+                                text=message_text,
+                                **success_state.message_kwargs
+                            )
+                            print(f"📧 Sent success message to user {user_id}")
+                        except Exception as e:
+                            print(f"❌ Error sending success message to user {user_id}: {e}")
+
                     break
 
             except ValueError as e:
