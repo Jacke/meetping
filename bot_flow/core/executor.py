@@ -214,8 +214,8 @@ class FlowExecutor:
             )
             self.polling_tasks[user_id] = task
 
-        # Handle auto transition
-        elif state.auto_transition:
+        # Handle auto transition (skip if state expects MESSAGE - transition will happen on message receipt)
+        elif state.auto_transition and state.trigger_type != TriggerType.MESSAGE:
             await self.transition_to(user_id, state.auto_transition, flow_ctx)
 
     async def _send_message(self, state: StateNode, flow_ctx: FlowContext) -> None:
@@ -269,6 +269,15 @@ class FlowExecutor:
                 elif not result and polling.on_false_goto:
                     await self.transition_to(user_id, polling.on_false_goto, flow_ctx)
                     break
+
+            except ValueError as e:
+                # Record not found (404) - remove user from polling
+                print(f"🗑️  Removing user {user_id} from polling: {e}")
+                del self.user_states[user_id]
+                if user_id in self.polling_tasks:
+                    self.polling_tasks[user_id].cancel()
+                    del self.polling_tasks[user_id]
+                break
 
             except Exception as e:
                 print(f"❌ Polling error in state '{state.name}': {e}")
@@ -491,6 +500,15 @@ class FlowExecutor:
                     self.user_states[user_id] = "success"
                     break
 
+            except ValueError as e:
+                # Record not found (404) - remove user from polling
+                print(f"🗑️  Removing user {user_id} from polling: {e}")
+                del self.user_states[user_id]
+                if user_id in self.polling_tasks:
+                    self.polling_tasks[user_id].cancel()
+                    del self.polling_tasks[user_id]
+                break
+
             except Exception as e:
                 print(f"❌ Polling error for user {user_id}: {e}")
 
@@ -521,11 +539,20 @@ class FlowExecutor:
                     headers=headers,
                     timeout=10.0
                 )
+
+                # Check for 404 - record not found (deleted from NocoDB)
+                if response.status_code == 404:
+                    print(f"⚠️  Record {record_id} not found in NocoDB (deleted?)")
+                    raise ValueError(f"Record {record_id} not found")
+
                 response.raise_for_status()
                 record = response.json()
                 is_paid = record.get("Paid", False) is True
                 return is_paid
 
+        except ValueError:
+            # Re-raise ValueError for 404 handling
+            raise
         except Exception as e:
             print(f"❌ Error checking payment for record {record_id}: {e}")
             return False

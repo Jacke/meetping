@@ -273,6 +273,7 @@ async def check_payment_status(ctx: FlowContext) -> bool:
     """
     Check if payment is confirmed in NocoDB.
     Returns True if paid, False otherwise.
+    Raises ValueError if record not found (404).
     """
     record_id = ctx.get('record_id')
 
@@ -290,6 +291,12 @@ async def check_payment_status(ctx: FlowContext) -> bool:
                 headers=headers,
                 timeout=10.0
             )
+
+            # Check for 404 - record not found (deleted from NocoDB)
+            if response.status_code == 404:
+                print(f"⚠️  Record {record_id} not found in NocoDB (deleted?)")
+                raise ValueError(f"Record {record_id} not found")
+
             response.raise_for_status()
             data = response.json()
             is_paid = data.get("Paid", False) is True
@@ -298,6 +305,9 @@ async def check_payment_status(ctx: FlowContext) -> bool:
                 print(f"✅ Payment confirmed for user {ctx.user.id}")
 
             return is_paid
+    except ValueError:
+        # Re-raise ValueError for 404 handling
+        raise
     except Exception as e:
         print(f"❌ Error checking payment status: {e}")
         return False
