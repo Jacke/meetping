@@ -263,10 +263,14 @@ class FlowExecutor:
                 result = await polling.check_function(flow_ctx)
                 flow_ctx.poll_result = result
 
+                print(f"🔍 Polling result for user {user_id} in state '{state.name}': result={result}, on_true_goto={polling.on_true_goto}, on_false_goto={polling.on_false_goto}")
+
                 if result and polling.on_true_goto:
+                    print(f"✅ Condition met! Transitioning {user_id} from '{state.name}' to '{polling.on_true_goto}'")
                     await self.transition_to(user_id, polling.on_true_goto, flow_ctx)
                     break
                 elif not result and polling.on_false_goto:
+                    print(f"❌ Condition not met! Transitioning {user_id} from '{state.name}' to '{polling.on_false_goto}'")
                     await self.transition_to(user_id, polling.on_false_goto, flow_ctx)
                     break
 
