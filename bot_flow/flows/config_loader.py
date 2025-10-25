@@ -7,6 +7,7 @@ import httpx
 from typing import Dict
 from config import config
 from bot_flow.flows.nocodb_utils import nocodb_request_with_retry
+from bot_flow.flows.cache_manager import CacheManager
 
 # NocoDB configuration from centralized config
 NOCODB_API_URL = config.NOCODB_API_URL
@@ -39,16 +40,54 @@ def validate_config(config_data: Dict[str, str]) -> None:
         )
 
 
-async def load_config_from_nocodb() -> Dict[str, str]:
+async def _fetch_config_from_nocodb() -> Dict[str, str]:
+    """
+    Fetch config from NocoDB (internal function, use load_config_from_nocodb instead).
+
+    Returns:
+        Dict mapping action -> text
+    """
+    headers = {
+        "xc-token": NOCODB_API_TOKEN
+    }
+
+    response = await nocodb_request_with_retry(
+        "GET",
+        f"{NOCODB_API_URL}/api/v2/tables/{CONFIG_TABLE_ID}/records",
+        headers=headers,
+        timeout=15.0
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    # Parse records into dict
+    config_data = {}
+    records = data.get("list", []) or data.get("records", [])
+
+    for record in records:
+        action = record.get("action")
+        text = record.get("text")
+        if action and text:
+            config_data[action] = text
+
+    return config_data
+
+
+async def load_config_from_nocodb(use_cache: bool = True) -> Dict[str, str]:
     """
     Load all config values from NocoDB table mguawvnumqrb5k7.
 
     Validates that all required config keys are present.
     Bot will not start if any required config values are missing.
 
+    Uses in-memory cache with 5-minute TTL to reduce API calls.
+
     Table schema:
         - action (string): config key (UPPERCASE)
         - text (string): config value
+
+    Args:
+        use_cache: Whether to use cache (default: True)
 
     Returns:
         Dict mapping action -> text
@@ -62,31 +101,20 @@ async def load_config_from_nocodb() -> Dict[str, str]:
             "   Please set NOCODB_API_TOKEN and NOCODB_CONFIG_TABLE_ID in .env file"
         )
 
-    headers = {
-        "xc-token": NOCODB_API_TOKEN
-    }
-
     try:
-        response = await nocodb_request_with_retry(
-            "GET",
-            f"{NOCODB_API_URL}/api/v2/tables/{CONFIG_TABLE_ID}/records",
-            headers=headers,
-            timeout=15.0
-        )
-        response.raise_for_status()
-        data = response.json()
-
-        # Parse records into dict
-        config_data = {}
-        records = data.get("list", []) or data.get("records", [])
-
-        for record in records:
-            action = record.get("action")
-            text = record.get("text")
-            if action and text:
-                config_data[action] = text
-
-        print(f"✅ Loaded {len(config_data)} config values from NocoDB")
+        if use_cache:
+            # Try cache first
+            cache = CacheManager.get_instance()
+            config_data = await cache.get_or_fetch(
+                'nocodb_config',
+                _fetch_config_from_nocodb,
+                ttl=300.0  # Cache for 5 minutes
+            )
+            print(f"✅ Loaded {len(config_data)} config values from NocoDB (cache: {cache.get('nocodb_config') is not None})")
+        else:
+            # Bypass cache
+            config_data = await _fetch_config_from_nocodb()
+            print(f"✅ Loaded {len(config_data)} config values from NocoDB (no cache)")
 
         # Validate all required keys are present
         validate_config(config_data)

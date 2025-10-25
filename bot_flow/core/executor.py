@@ -138,7 +138,7 @@ class FlowExecutor:
 
         # Add NocoDB link for awaiting_payment state
         if to_state == "awaiting_payment" and nocodb_url and nocodb_table_id:
-            nocodb_link = f"{nocodb_url}/#/nc/{nocodb_table_id}"
+            nocodb_link = f"https://app.nocodb.com/#/wux6zxnq/pwt37o18yvtfeh6/mfaob33z2nnrxve/vwat61y3diobt3it"
             message += f"\n\n🔗 <a href=\"{nocodb_link}\">Открыть NocoDB</a>"
 
         # Send to each admin by chat ID

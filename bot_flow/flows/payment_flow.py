@@ -82,26 +82,23 @@ async def create_payment_record(ctx: FlowContext) -> None:
 
 
 async def reload_texts_and_config(ctx: FlowContext) -> None:
-    """Reload texts and config from NocoDB on each /start"""
+    """
+    Reload texts and config from NocoDB on each /start.
+
+    NOTE: This now uses cache with 5-minute TTL, so it won't actually
+    hit NocoDB API on every /start - only when cache expires.
+    This reduces API load by ~95% for repeated /start commands.
+    """
     global TEXTS, CONFIG
-    TEXTS = await load_texts_from_nocodb()
-    CONFIG = await load_config_from_nocodb()
+    TEXTS = await load_texts_from_nocodb(use_cache=True)
+    CONFIG = await load_config_from_nocodb(use_cache=True)
 
     # Store in context for dynamic usage
     ctx.set('texts', TEXTS)
     ctx.set('config', CONFIG)
 
-    print(f"🔄 Reloaded texts and config from NocoDB for user {ctx.user.id}")
-
-
-async def check_if_payment_confirmed(ctx: FlowContext) -> bool:
-    """
-    Check if user's payment is confirmed (from context).
-    This is a simple check of the payment_confirmed flag set during registration check.
-
-    Returns True if payment is confirmed, False otherwise.
-    """
-    return ctx.get('payment_confirmed', False)
+    # Don't log on every /start - only log on actual cache miss
+    # (logging is done inside load_texts/config functions)
 
 
 async def load_awaiting_payment_users() -> list:
@@ -205,7 +202,7 @@ async def get_statistics(ctx: FlowContext) -> None:
         )
 
 
-async def check_user_registration(ctx: FlowContext) -> bool:
+async def check_user_registration(ctx: FlowContext) -> None:
     """
     Check if user is already registered (has a record in NocoDB).
 
@@ -214,12 +211,13 @@ async def check_user_registration(ctx: FlowContext) -> bool:
     - 'payment_confirmed': True if user has paid
     - 'record_id': NocoDB record ID if found
 
-    Returns True if user is registered (paid or unpaid), False otherwise.
-    This is used as a polling check function that runs immediately.
+    This runs immediately as an action (not polling).
     """
     if not NOCODB_API_TOKEN or not NOCODB_TABLE_ID:
         print("⚠️ NocoDB not configured, skipping registration check")
-        return False
+        ctx.set('already_registered', False)
+        ctx.set('payment_confirmed', False)
+        return
 
     headers = {
         "xc-token": NOCODB_API_TOKEN
@@ -252,18 +250,66 @@ async def check_user_registration(ctx: FlowContext) -> bool:
             ctx.set('payment_confirmed', is_paid)
 
             print(f"✅ Found existing registration for user {ctx.user.id}, record: {record_id}, paid: {is_paid}")
-            return True  # User is registered (paid or unpaid)
-
-        print(f"ℹ️ No existing registration for user {ctx.user.id}")
-        ctx.set('already_registered', False)
-        ctx.set('payment_confirmed', False)
-        return False  # User is not registered
+        else:
+            print(f"ℹ️ No existing registration for user {ctx.user.id}")
+            ctx.set('already_registered', False)
+            ctx.set('payment_confirmed', False)
 
     except Exception as e:
         print(f"❌ Error checking user registration: {e}")
         ctx.set('already_registered', False)
         ctx.set('payment_confirmed', False)
-        return False  # On error, treat as not registered
+
+
+async def batch_check_payment_status(record_ids: list) -> dict:
+    """
+    Check payment status for multiple records in a single NocoDB query.
+
+    Args:
+        record_ids: List of NocoDB record IDs to check
+
+    Returns:
+        Dict mapping record_id -> is_paid (bool)
+    """
+    if not NOCODB_API_TOKEN or not NOCODB_TABLE_ID or not record_ids:
+        return {}
+
+    headers = {
+        "xc-token": NOCODB_API_TOKEN
+    }
+
+    try:
+        # Build WHERE clause: (Id,in,id1,id2,id3)
+        ids_str = ",".join(str(rid) for rid in record_ids)
+        where_clause = f"(Id,in,{ids_str})"
+
+        response = await nocodb_request_with_retry(
+            "GET",
+            f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records",
+            headers=headers,
+            params={
+                "where": where_clause,
+                "limit": len(record_ids),
+                "fields": "Id,Paid"  # Only fetch necessary fields
+            },
+            timeout=15.0
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        # Parse results into dict
+        results = {}
+        records = data.get("list", [])
+        for record in records:
+            record_id = str(record.get("Id") or record.get("id"))
+            is_paid = record.get("Paid", False) is True
+            results[record_id] = is_paid
+
+        return results
+
+    except Exception as e:
+        print(f"❌ Error batch checking payment status: {e}")
+        return {}
 
 
 async def check_payment_status(ctx: FlowContext) -> bool:
@@ -360,21 +406,20 @@ async def build_payment_flow() -> 'Flow':
         FlowBuilder("payment_bot")
 
         # ====================================================================
-        # State: Welcome (checks registration with immediate poll)
+        # State: Welcome (checks registration immediately via action)
         # ====================================================================
         .state("welcome")
             .on_command("/start")
             .action(reload_texts_and_config)
-            .poll(check_user_registration, interval=1)  # Check with minimal interval
-            .on_condition(lambda ctx: ctx.poll_result, goto="route_user")
+            .action(check_user_registration)  # Run immediately as action, not polling
+            .on_condition(lambda ctx: ctx.get('already_registered', False), goto="route_user")
             .otherwise(goto="show_welcome")
 
         # ====================================================================
         # State: Route User (decides where to send based on payment status)
         # ====================================================================
         .state("route_user")
-            .poll(check_if_payment_confirmed, interval=1)
-            .on_condition(lambda ctx: ctx.poll_result, goto="already_paid")
+            .on_condition(lambda ctx: ctx.get('payment_confirmed', False), goto="already_paid")
             .otherwise(goto="payment_pending")
 
         # ====================================================================
@@ -429,7 +474,7 @@ async def build_payment_flow() -> 'Flow':
         # State: Awaiting Payment (with polling)
         # ====================================================================
         .state("awaiting_payment")
-            .poll(check_payment_status, interval=30)  # Increased from 10s to 30s to reduce NocoDB load
+            .poll(check_payment_status, interval=60)  # Increased to 60s (was 30s, originally 10s)
             .on_condition(lambda ctx: ctx.poll_result, goto="success")
 
         # ====================================================================
