@@ -432,7 +432,7 @@ class FlowExecutor:
 
         print(f"\n🔄 Restoring {len(users_data)} users in state '{state_name}':")
 
-        for user_data in users_data:
+        for idx, user_data in enumerate(users_data):
             user_id = user_data['tg_id']
             record_id = user_data['record_id']
             username = user_data.get('username', '')
@@ -445,6 +445,7 @@ class FlowExecutor:
             class MockContext:
                 def __init__(self, user_id, record_id):
                     self._data = {
+                        'user_id': user_id,  # Add user_id to data dict
                         'record_id': record_id,
                         'already_registered': True,
                         'payment_confirmed': False
@@ -474,6 +475,12 @@ class FlowExecutor:
             self.polling_tasks[user_id] = task
 
             print(f"   ✓ User {user_id} (@{username or first_name}) - record {record_id}")
+
+            # Add small delay to stagger polling start times (distribute load)
+            # Every 10 users, wait 1 second to avoid burst at startup
+            if (idx + 1) % 10 == 0 and idx + 1 < len(users_data):
+                await asyncio.sleep(1)
+                print(f"   ⏱️  Staggering polling start ({idx + 1}/{len(users_data)} users restored)...")
 
         print(f"✅ Started polling for {len(users_data)} users\n")
 
@@ -537,7 +544,25 @@ class FlowExecutor:
             attempts += 1
 
     async def _check_payment_status_for_restored(self, mock_ctx) -> bool:
-        """Check payment status in NocoDB for restored users"""
+        """
+        Check payment status for restored users.
+
+        If Global Payment Tracker is available, read from it (NO API CALL!).
+        Otherwise fall back to direct API request.
+        """
+        # Try to use Global Payment Tracker if available
+        if hasattr(self, '_global_tracker'):
+            user_id = mock_ctx.get('user_id')
+            if user_id:
+                from bot_flow.flows.global_payment_tracker import get_global_tracker
+                tracker = get_global_tracker()
+                is_paid = tracker.is_paid(user_id)
+                # If paid, untrack user
+                if is_paid:
+                    tracker.untrack_user(user_id)
+                return is_paid
+
+        # Fallback to direct API request if tracker not available
         record_id = mock_ctx.get('record_id')
         if not record_id:
             return False
@@ -554,23 +579,25 @@ class FlowExecutor:
         headers = {"xc-token": nocodb_api_token}
 
         try:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{nocodb_api_url}/api/v2/tables/{nocodb_table_id}/records/{record_id}",
-                    headers=headers,
-                    timeout=10.0
-                )
+            # Use nocodb_request_with_retry for rate limiting and connection pooling
+            from bot_flow.flows.nocodb_utils import nocodb_request_with_retry
 
-                # Check for 404 - record not found (deleted from NocoDB)
-                if response.status_code == 404:
-                    print(f"⚠️  Record {record_id} not found in NocoDB (deleted?)")
-                    raise ValueError(f"Record {record_id} not found")
+            response = await nocodb_request_with_retry(
+                "GET",
+                f"{nocodb_api_url}/api/v2/tables/{nocodb_table_id}/records/{record_id}",
+                headers=headers,
+                timeout=10.0
+            )
 
-                response.raise_for_status()
-                record = response.json()
-                is_paid = record.get("Paid", False) is True
-                return is_paid
+            # Check for 404 - record not found (deleted from NocoDB)
+            if response.status_code == 404:
+                print(f"⚠️  Record {record_id} not found in NocoDB (deleted?)")
+                raise ValueError(f"Record {record_id} not found")
+
+            response.raise_for_status()
+            record = response.json()
+            is_paid = record.get("Paid", False) is True
+            return is_paid
 
         except ValueError:
             # Re-raise ValueError for 404 handling
@@ -631,6 +658,14 @@ class FlowExecutor:
         # Setup bot commands menu and cleanup hooks
         async def post_init(_application: Application) -> None:
             await self._setup_bot_commands()
+
+            # Start Global Payment Tracker if available
+            if hasattr(self, '_global_tracker'):
+                tracker = self._global_tracker
+                print(f"🎯 Starting Global Payment Tracker (update interval: 20s)...")
+                # Start tracker in background (non-blocking)
+                asyncio.create_task(tracker.start(interval=20))
+                print(f"✅ Global Payment Tracker started!\n")
 
             # Restore user states if any were loaded
             if hasattr(self, '_awaiting_users') and self._awaiting_users:

@@ -11,6 +11,19 @@ from bot_flow.flows.rate_limiter import RateLimiter
 # Global connection pool (singleton pattern)
 _client_pool: Optional[httpx.AsyncClient] = None
 
+# Global request counter for tracking RPS
+_request_counter = {
+    'total': 0,
+    'success': 0,
+    'failed': 0,
+    'rate_limited': 0
+}
+
+
+def get_request_stats() -> dict:
+    """Get current request statistics"""
+    return _request_counter.copy()
+
 
 async def get_client_pool() -> httpx.AsyncClient:
     """
@@ -65,17 +78,93 @@ async def nocodb_request_with_retry(
         httpx.HTTPStatusError: For non-429 HTTP errors
         Exception: For other errors after all retries exhausted
     """
+    import time
+    from datetime import datetime
+
     # Get rate limiter singleton
     rate_limiter = RateLimiter.get_instance()
 
     # Get shared client pool
     client = await get_client_pool()
 
+    # Extract endpoint name for logging (clean URL)
+    endpoint = url.replace('https://app.nocodb.com', '').replace('/api/v2/tables/', 'tables/')
+    if len(endpoint) > 60:
+        endpoint = endpoint[:57] + '...'
+
+    # Extract params/body for logging
+    params = kwargs.get('params', {})
+    json_data = kwargs.get('json', {})
+
     for attempt in range(max_retries + 1):
         try:
             # Apply rate limiting before request
+            start_time = time.time()
+            timestamp = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+
+            # Log outgoing request
+            print(f"\n📤 [{timestamp}] NocoDB Request:")
+            print(f"   Method: {method}")
+            print(f"   Endpoint: {endpoint}")
+            if params:
+                # Format params nicely
+                params_str = ", ".join(f"{k}={v}" for k, v in params.items())
+                if len(params_str) > 100:
+                    params_str = params_str[:97] + '...'
+                print(f"   Params: {params_str}")
+            if json_data:
+                # Show json body (truncated)
+                json_str = str(json_data)
+                if len(json_str) > 150:
+                    json_str = json_str[:147] + '...'
+                print(f"   Body: {json_str}")
+
             async with rate_limiter:
                 response = await client.request(method, url, headers=headers, **kwargs)
+
+                # Update counters
+                _request_counter['total'] += 1
+
+                # Log response
+                duration = time.time() - start_time
+                timestamp_end = datetime.now().strftime('%H:%M:%S.%f')[:-3]
+
+                # Choose emoji based on status
+                if response.status_code < 300:
+                    status_emoji = "✅"
+                    _request_counter['success'] += 1
+                elif response.status_code == 429:
+                    status_emoji = "🚫"
+                    _request_counter['rate_limited'] += 1
+                elif response.status_code < 500:
+                    status_emoji = "⚠️"
+                    _request_counter['failed'] += 1
+                else:
+                    status_emoji = "❌"
+                    _request_counter['failed'] += 1
+
+                print(f"{status_emoji} [{timestamp_end}] NocoDB Response: {response.status_code} in {duration:.3f}s")
+
+                # Show response size
+                content_length = response.headers.get('content-length', 'unknown')
+                print(f"   Size: {content_length} bytes")
+
+                # For list responses, show count
+                if response.status_code < 300:
+                    try:
+                        data = response.json()
+                        if 'list' in data:
+                            print(f"   Records: {len(data['list'])}")
+                        elif 'id' in data or 'Id' in data:
+                            print(f"   Record ID: {data.get('id') or data.get('Id')}")
+                    except:
+                        pass
+
+                # Show cumulative stats
+                print(f"   📊 Total requests: {_request_counter['total']} " +
+                      f"(✅ {_request_counter['success']}, " +
+                      f"❌ {_request_counter['failed']}, " +
+                      f"🚫 {_request_counter['rate_limited']})")
 
                 # Check for 429 - too many requests
                 if response.status_code == 429:

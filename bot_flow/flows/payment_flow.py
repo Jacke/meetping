@@ -36,7 +36,7 @@ async def save_fullname_from_message(ctx: FlowContext) -> None:
 
 
 async def create_payment_record(ctx: FlowContext) -> None:
-    """Create payment record in NocoDB and store record_id in context"""
+    """Create payment record in NocoDB and register in Global Payment Tracker"""
     if not NOCODB_API_TOKEN or not NOCODB_TABLE_ID:
         print("⚠️ NocoDB not configured, local mode")
         ctx.set('record_id', None)
@@ -76,6 +76,12 @@ async def create_payment_record(ctx: FlowContext) -> None:
         record_id = str(result.get("Id") or result.get("id"))
         ctx.set('record_id', record_id)
         print(f"✅ Created NocoDB record: {record_id} for user {ctx.user.id} ({fullname})")
+
+        # Register in Global Payment Tracker for centralized monitoring
+        from bot_flow.flows.global_payment_tracker import get_global_tracker
+        tracker = get_global_tracker()
+        tracker.track_user(ctx.user.id, record_id)
+
     except Exception as e:
         print(f"❌ Error creating NocoDB record: {e}")
         ctx.set('record_id', None)
@@ -186,7 +192,7 @@ async def get_statistics(ctx: FlowContext) -> None:
 ✅ Оплачено: <b>{paid}</b>
 ⏳ Ожидают оплаты: <b>{unpaid}</b>
 
-🔗 <a href="{NOCODB_API_URL}/#/nc/{NOCODB_TABLE_ID}">Открыть NocoDB</a>
+🔗 <a href="https://app.nocodb.com/#/wux6zxnq/pwt37o18yvtfeh6/mfaob33z2nnrxve/vwat61y3diobt3it">Открыть NocoDB</a>
 """
 
         await ctx.update.message.reply_text(
@@ -200,6 +206,22 @@ async def get_statistics(ctx: FlowContext) -> None:
             f"❌ Ошибка получения статистики: {e}",
             parse_mode="HTML"
         )
+
+
+async def check_registration_flag(ctx: FlowContext) -> bool:
+    """
+    Helper polling function to check registration flag from context.
+    Returns the value of 'already_registered' flag set by check_user_registration.
+    """
+    return ctx.get('already_registered', False)
+
+
+async def check_payment_flag(ctx: FlowContext) -> bool:
+    """
+    Helper polling function to check payment flag from context.
+    Returns the value of 'payment_confirmed' flag set by check_user_registration.
+    """
+    return ctx.get('payment_confirmed', False)
 
 
 async def check_user_registration(ctx: FlowContext) -> None:
@@ -314,47 +336,27 @@ async def batch_check_payment_status(record_ids: list) -> dict:
 
 async def check_payment_status(ctx: FlowContext) -> bool:
     """
-    Check if payment is confirmed in NocoDB.
+    Check if payment is confirmed - reads from Global Payment Tracker.
+
+    NO API CALL! Just reads from cached global state that is updated
+    every 20 seconds for ALL users with a single batch query.
+
+    300 users = 1 API request instead of 300!
+
     Returns True if paid, False otherwise.
-    Raises ValueError if record not found (404).
     """
-    record_id = ctx.get('record_id')
+    from bot_flow.flows.global_payment_tracker import get_global_tracker
 
-    if not NOCODB_API_TOKEN or not NOCODB_TABLE_ID or not record_id:
-        return False
+    tracker = get_global_tracker()
+    is_paid = tracker.is_paid(ctx.user.id)
 
-    headers = {
-        "xc-token": NOCODB_API_TOKEN
-    }
+    if is_paid:
+        print(f"✅ Payment confirmed for user {ctx.user.id} (from global tracker)")
 
-    try:
-        response = await nocodb_request_with_retry(
-            "GET",
-            f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records/{record_id}",
-            headers=headers,
-            timeout=15.0
-        )
+        # Untrack user after payment confirmed
+        tracker.untrack_user(ctx.user.id)
 
-        # Check for 404 - record not found (deleted from NocoDB)
-        if response.status_code == 404:
-            print(f"⚠️  Record {record_id} not found in NocoDB (deleted?)")
-            raise ValueError(f"Record {record_id} not found")
-
-        response.raise_for_status()
-        data = response.json()
-        is_paid = data.get("Paid", False) is True
-
-        if is_paid:
-            print(f"✅ Payment confirmed for user {ctx.user.id}")
-
-        return is_paid
-
-    except ValueError:
-        # Re-raise ValueError for 404 handling
-        raise
-    except Exception as e:
-        print(f"❌ Error checking payment status: {e}")
-        return False
+    return is_paid
 
 
 # ============================================================================
@@ -406,20 +408,23 @@ async def build_payment_flow() -> 'Flow':
         FlowBuilder("payment_bot")
 
         # ====================================================================
-        # State: Welcome (checks registration immediately via action)
+        # State: Welcome (checks registration, then routes via helper polling)
         # ====================================================================
         .state("welcome")
             .on_command("/start")
             .action(reload_texts_and_config)
-            .action(check_user_registration)  # Run immediately as action, not polling
-            .on_condition(lambda ctx: ctx.get('already_registered', False), goto="route_user")
+            .action(check_user_registration)  # Sets 'already_registered' flag in context
+            # Use helper async function for routing check
+            .poll(check_registration_flag, interval=0.1)
+            .on_condition(lambda ctx: ctx.poll_result, goto="route_user")
             .otherwise(goto="show_welcome")
 
         # ====================================================================
-        # State: Route User (decides where to send based on payment status)
+        # State: Route User (routes to paid/unpaid via helper polling)
         # ====================================================================
         .state("route_user")
-            .on_condition(lambda ctx: ctx.get('payment_confirmed', False), goto="already_paid")
+            .poll(check_payment_flag, interval=0.1)
+            .on_condition(lambda ctx: ctx.poll_result, goto="already_paid")
             .otherwise(goto="payment_pending")
 
         # ====================================================================
@@ -568,6 +573,9 @@ def main():
     ]
 
     # Create executor
+    # NOTE: Batch polling is prepared but requires FlowExecutor integration
+    # For now using standard per-user polling with optimized 60s interval
+    # This is still safe for <200 users. For 300+ users, batch polling integration needed.
     executor = FlowExecutor(
         flow,
         BOT_TOKEN,
@@ -576,11 +584,24 @@ def main():
         nocodb_table_id=NOCODB_TABLE_ID
     )
 
-    # Restore user states and start polling (must be done in async context)
-    # This will be called in post_init hook
+    # Initialize Global Payment Tracker
+    from bot_flow.flows.global_payment_tracker import get_global_tracker
+    tracker = get_global_tracker()
+    tracker.configure(NOCODB_API_URL, NOCODB_API_TOKEN, NOCODB_TABLE_ID)
+
+    # Register all awaiting users in global tracker
+    if awaiting_users:
+        for user in awaiting_users:
+            tracker.track_user(user['tg_id'], user['record_id'])
+        print(f"📍 Registered {len(awaiting_users)} users in Global Payment Tracker\n")
+
+    # Store awaiting users for state restoration
     executor._awaiting_users = awaiting_users
 
-    # Run executor (this creates its own event loop)
+    # Store tracker reference for starting in post_init hook
+    executor._global_tracker = tracker
+
+    # Run executor (tracker will be started in post_init hook inside executor's event loop)
     executor.run()
 
 
