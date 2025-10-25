@@ -3,6 +3,7 @@ Declarative payment bot flow definition.
 
 This is the payment_bot.py reimplemented using the declarative FlowBuilder API.
 """
+import asyncio
 import httpx
 from config import config
 from bot_flow.core import FlowBuilder, FlowContext
@@ -274,6 +275,8 @@ async def check_payment_status(ctx: FlowContext) -> bool:
     Check if payment is confirmed in NocoDB.
     Returns True if paid, False otherwise.
     Raises ValueError if record not found (404).
+
+    Implements exponential backoff for 429 (Too Many Requests) errors.
     """
     record_id = ctx.get('record_id')
 
@@ -284,33 +287,53 @@ async def check_payment_status(ctx: FlowContext) -> bool:
         "xc-token": NOCODB_API_TOKEN
     }
 
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records/{record_id}",
-                headers=headers,
-                timeout=10.0
-            )
+    # Exponential backoff configuration
+    max_retries = 3
+    base_delay = 1  # Start with 1 second
 
-            # Check for 404 - record not found (deleted from NocoDB)
-            if response.status_code == 404:
-                print(f"⚠️  Record {record_id} not found in NocoDB (deleted?)")
-                raise ValueError(f"Record {record_id} not found")
+    for attempt in range(max_retries + 1):
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records/{record_id}",
+                    headers=headers,
+                    timeout=10.0
+                )
 
-            response.raise_for_status()
-            data = response.json()
-            is_paid = data.get("Paid", False) is True
+                # Check for 404 - record not found (deleted from NocoDB)
+                if response.status_code == 404:
+                    print(f"⚠️  Record {record_id} not found in NocoDB (deleted?)")
+                    raise ValueError(f"Record {record_id} not found")
 
-            if is_paid:
-                print(f"✅ Payment confirmed for user {ctx.user.id}")
+                # Check for 429 - too many requests
+                if response.status_code == 429:
+                    if attempt < max_retries:
+                        delay = base_delay * (2 ** attempt)  # Exponential: 1s, 2s, 4s
+                        print(f"⚠️  Rate limit (429) for record {record_id}, retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(delay)
+                        continue  # Retry
+                    else:
+                        print(f"❌ Rate limit (429) exceeded max retries for record {record_id}")
+                        return False  # Give up after max retries
 
-            return is_paid
-    except ValueError:
-        # Re-raise ValueError for 404 handling
-        raise
-    except Exception as e:
-        print(f"❌ Error checking payment status: {e}")
-        return False
+                response.raise_for_status()
+                data = response.json()
+                is_paid = data.get("Paid", False) is True
+
+                if is_paid:
+                    print(f"✅ Payment confirmed for user {ctx.user.id}")
+
+                return is_paid
+
+        except ValueError:
+            # Re-raise ValueError for 404 handling
+            raise
+        except Exception as e:
+            print(f"❌ Error checking payment status: {e}")
+            return False
+
+    # Should not reach here, but just in case
+    return False
 
 
 # ============================================================================
