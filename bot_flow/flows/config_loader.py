@@ -6,6 +6,7 @@ This module provides functionality to load bot config values from NocoDB table m
 import httpx
 from typing import Dict
 from config import config
+from bot_flow.flows.nocodb_utils import nocodb_request_with_retry
 
 # NocoDB configuration from centralized config
 NOCODB_API_URL = config.NOCODB_API_URL
@@ -66,32 +67,32 @@ async def load_config_from_nocodb() -> Dict[str, str]:
     }
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{NOCODB_API_URL}/api/v2/tables/{CONFIG_TABLE_ID}/records",
-                headers=headers,
-                timeout=10.0
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await nocodb_request_with_retry(
+            "GET",
+            f"{NOCODB_API_URL}/api/v2/tables/{CONFIG_TABLE_ID}/records",
+            headers=headers,
+            timeout=15.0
+        )
+        response.raise_for_status()
+        data = response.json()
 
-            # Parse records into dict
-            config_data = {}
-            records = data.get("list", []) or data.get("records", [])
+        # Parse records into dict
+        config_data = {}
+        records = data.get("list", []) or data.get("records", [])
 
-            for record in records:
-                action = record.get("action")
-                text = record.get("text")
-                if action and text:
-                    config_data[action] = text
+        for record in records:
+            action = record.get("action")
+            text = record.get("text")
+            if action and text:
+                config_data[action] = text
 
-            print(f"✅ Loaded {len(config_data)} config values from NocoDB")
+        print(f"✅ Loaded {len(config_data)} config values from NocoDB")
 
-            # Validate all required keys are present
-            validate_config(config_data)
-            print(f"✅ All required config constants validated")
+        # Validate all required keys are present
+        validate_config(config_data)
+        print(f"✅ All required config constants validated")
 
-            return config_data
+        return config_data
 
     except httpx.HTTPError as e:
         raise ValueError(

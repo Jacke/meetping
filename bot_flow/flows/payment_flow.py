@@ -3,12 +3,11 @@ Declarative payment bot flow definition.
 
 This is the payment_bot.py reimplemented using the declarative FlowBuilder API.
 """
-import asyncio
-import httpx
 from config import config
 from bot_flow.core import FlowBuilder, FlowContext
 from bot_flow.flows.texts_loader import load_texts_from_nocodb
 from bot_flow.flows.config_loader import load_config_from_nocodb
+from bot_flow.flows.nocodb_utils import nocodb_request_with_retry
 
 # NocoDB configuration from centralized config
 NOCODB_API_URL = config.NOCODB_API_URL
@@ -65,18 +64,18 @@ async def create_payment_record(ctx: FlowContext) -> None:
     }
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records",
-                headers=headers,
-                json=data,
-                timeout=10.0
-            )
-            response.raise_for_status()
-            result = response.json()
-            record_id = str(result.get("Id") or result.get("id"))
-            ctx.set('record_id', record_id)
-            print(f"✅ Created NocoDB record: {record_id} for user {ctx.user.id} ({fullname})")
+        response = await nocodb_request_with_retry(
+            "POST",
+            f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records",
+            headers=headers,
+            json=data,
+            timeout=15.0
+        )
+        response.raise_for_status()
+        result = response.json()
+        record_id = str(result.get("Id") or result.get("id"))
+        ctx.set('record_id', record_id)
+        print(f"✅ Created NocoDB record: {record_id} for user {ctx.user.id} ({fullname})")
     except Exception as e:
         print(f"❌ Error creating NocoDB record: {e}")
         ctx.set('record_id', None)
@@ -117,33 +116,32 @@ async def load_awaiting_payment_users() -> list:
     headers = {"xc-token": NOCODB_API_TOKEN}
 
     try:
-        async with httpx.AsyncClient() as client:
-            # Get all records with Paid = false
-            response = await client.get(
-                f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records",
-                headers=headers,
-                params={
-                    "where": "(Paid,eq,false)",  # Filter: Paid = false
-                    "limit": 1000
-                },
-                timeout=10.0
-            )
-            response.raise_for_status()
-            data = response.json()
-            records = data.get("list", [])
+        response = await nocodb_request_with_retry(
+            "GET",
+            f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records",
+            headers=headers,
+            params={
+                "where": "(Paid,eq,false)",  # Filter: Paid = false
+                "limit": 1000
+            },
+            timeout=15.0
+        )
+        response.raise_for_status()
+        data = response.json()
+        records = data.get("list", [])
 
-            users = []
-            for record in records:
-                tg_id = record.get("TG ID")
-                if tg_id:
-                    users.append({
-                        'tg_id': int(tg_id),
-                        'record_id': str(record.get("Id") or record.get("id")),
-                        'username': record.get("TG", ""),
-                        'first_name': record.get("First Name", "Unknown")
-                    })
+        users = []
+        for record in records:
+            tg_id = record.get("TG ID")
+            if tg_id:
+                users.append({
+                    'tg_id': int(tg_id),
+                    'record_id': str(record.get("Id") or record.get("id")),
+                    'username': record.get("TG", ""),
+                    'first_name': record.get("First Name", "Unknown")
+                })
 
-            return users
+        return users
 
     except Exception as e:
         print(f"❌ Error loading awaiting payment users: {e}")
@@ -167,25 +165,24 @@ async def get_statistics(ctx: FlowContext) -> None:
     }
 
     try:
-        async with httpx.AsyncClient() as client:
-            # Get all records
-            response = await client.get(
-                f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records",
-                headers=headers,
-                params={"limit": 1000},  # Get up to 1000 records
-                timeout=10.0
-            )
-            response.raise_for_status()
-            data = response.json()
-            records = data.get("list", [])
+        response = await nocodb_request_with_retry(
+            "GET",
+            f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records",
+            headers=headers,
+            params={"limit": 1000},  # Get up to 1000 records
+            timeout=15.0
+        )
+        response.raise_for_status()
+        data = response.json()
+        records = data.get("list", [])
 
-            # Calculate statistics
-            total = len(records)
-            paid = sum(1 for r in records if r.get("Paid") is True)
-            unpaid = total - paid
+        # Calculate statistics
+        total = len(records)
+        paid = sum(1 for r in records if r.get("Paid") is True)
+        unpaid = total - paid
 
-            # Format message
-            message = f"""
+        # Format message
+        message = f"""
 📊 <b>Статистика регистраций</b>
 
 📝 Всего заявок: <b>{total}</b>
@@ -195,11 +192,11 @@ async def get_statistics(ctx: FlowContext) -> None:
 🔗 <a href="{NOCODB_API_URL}/#/nc/{NOCODB_TABLE_ID}">Открыть NocoDB</a>
 """
 
-            await ctx.update.message.reply_text(
-                message,
-                parse_mode="HTML",
-                disable_web_page_preview=True
-            )
+        await ctx.update.message.reply_text(
+            message,
+            parse_mode="HTML",
+            disable_web_page_preview=True
+        )
 
     except Exception as e:
         await ctx.update.message.reply_text(
@@ -229,39 +226,38 @@ async def check_user_registration(ctx: FlowContext) -> bool:
     }
 
     try:
-        async with httpx.AsyncClient() as client:
-            # Search for records with this user's Telegram ID
-            response = await client.get(
-                f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records",
-                headers=headers,
-                params={
-                    "where": f"(TG ID,eq,{ctx.user.id})",
-                    "limit": 1
-                },
-                timeout=10.0
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await nocodb_request_with_retry(
+            "GET",
+            f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records",
+            headers=headers,
+            params={
+                "where": f"(TG ID,eq,{ctx.user.id})",
+                "limit": 1
+            },
+            timeout=15.0
+        )
+        response.raise_for_status()
+        data = response.json()
 
-            # Check if any records found
-            records = data.get("list", [])
-            if records:
-                record = records[0]
-                record_id = str(record.get("Id") or record.get("id"))
-                is_paid = record.get("Paid", False) is True
+        # Check if any records found
+        records = data.get("list", [])
+        if records:
+            record = records[0]
+            record_id = str(record.get("Id") or record.get("id"))
+            is_paid = record.get("Paid", False) is True
 
-                # Store record info in context
-                ctx.set('record_id', record_id)
-                ctx.set('already_registered', True)
-                ctx.set('payment_confirmed', is_paid)
+            # Store record info in context
+            ctx.set('record_id', record_id)
+            ctx.set('already_registered', True)
+            ctx.set('payment_confirmed', is_paid)
 
-                print(f"✅ Found existing registration for user {ctx.user.id}, record: {record_id}, paid: {is_paid}")
-                return True  # User is registered (paid or unpaid)
+            print(f"✅ Found existing registration for user {ctx.user.id}, record: {record_id}, paid: {is_paid}")
+            return True  # User is registered (paid or unpaid)
 
-            print(f"ℹ️ No existing registration for user {ctx.user.id}")
-            ctx.set('already_registered', False)
-            ctx.set('payment_confirmed', False)
-            return False  # User is not registered
+        print(f"ℹ️ No existing registration for user {ctx.user.id}")
+        ctx.set('already_registered', False)
+        ctx.set('payment_confirmed', False)
+        return False  # User is not registered
 
     except Exception as e:
         print(f"❌ Error checking user registration: {e}")
@@ -275,8 +271,6 @@ async def check_payment_status(ctx: FlowContext) -> bool:
     Check if payment is confirmed in NocoDB.
     Returns True if paid, False otherwise.
     Raises ValueError if record not found (404).
-
-    Implements exponential backoff for 429 (Too Many Requests) errors.
     """
     record_id = ctx.get('record_id')
 
@@ -287,53 +281,34 @@ async def check_payment_status(ctx: FlowContext) -> bool:
         "xc-token": NOCODB_API_TOKEN
     }
 
-    # Exponential backoff configuration
-    max_retries = 3
-    base_delay = 1  # Start with 1 second
+    try:
+        response = await nocodb_request_with_retry(
+            "GET",
+            f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records/{record_id}",
+            headers=headers,
+            timeout=15.0
+        )
 
-    for attempt in range(max_retries + 1):
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(
-                    f"{NOCODB_API_URL}/api/v2/tables/{NOCODB_TABLE_ID}/records/{record_id}",
-                    headers=headers,
-                    timeout=10.0
-                )
+        # Check for 404 - record not found (deleted from NocoDB)
+        if response.status_code == 404:
+            print(f"⚠️  Record {record_id} not found in NocoDB (deleted?)")
+            raise ValueError(f"Record {record_id} not found")
 
-                # Check for 404 - record not found (deleted from NocoDB)
-                if response.status_code == 404:
-                    print(f"⚠️  Record {record_id} not found in NocoDB (deleted?)")
-                    raise ValueError(f"Record {record_id} not found")
+        response.raise_for_status()
+        data = response.json()
+        is_paid = data.get("Paid", False) is True
 
-                # Check for 429 - too many requests
-                if response.status_code == 429:
-                    if attempt < max_retries:
-                        delay = base_delay * (2 ** attempt)  # Exponential: 1s, 2s, 4s
-                        print(f"⚠️  Rate limit (429) for record {record_id}, retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
-                        await asyncio.sleep(delay)
-                        continue  # Retry
-                    else:
-                        print(f"❌ Rate limit (429) exceeded max retries for record {record_id}")
-                        return False  # Give up after max retries
+        if is_paid:
+            print(f"✅ Payment confirmed for user {ctx.user.id}")
 
-                response.raise_for_status()
-                data = response.json()
-                is_paid = data.get("Paid", False) is True
+        return is_paid
 
-                if is_paid:
-                    print(f"✅ Payment confirmed for user {ctx.user.id}")
-
-                return is_paid
-
-        except ValueError:
-            # Re-raise ValueError for 404 handling
-            raise
-        except Exception as e:
-            print(f"❌ Error checking payment status: {e}")
-            return False
-
-    # Should not reach here, but just in case
-    return False
+    except ValueError:
+        # Re-raise ValueError for 404 handling
+        raise
+    except Exception as e:
+        print(f"❌ Error checking payment status: {e}")
+        return False
 
 
 # ============================================================================
@@ -454,7 +429,7 @@ async def build_payment_flow() -> 'Flow':
         # State: Awaiting Payment (with polling)
         # ====================================================================
         .state("awaiting_payment")
-            .poll(check_payment_status, interval=10)
+            .poll(check_payment_status, interval=30)  # Increased from 10s to 30s to reduce NocoDB load
             .on_condition(lambda ctx: ctx.poll_result, goto="success")
 
         # ====================================================================

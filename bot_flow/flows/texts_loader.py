@@ -4,8 +4,9 @@ Loader for bot texts from NocoDB.
 This module provides functionality to load bot text strings from NocoDB table pwt37o18yvtfeh6.
 """
 import httpx
-from typing import Dict, List
+from typing import Dict
 from config import config
+from bot_flow.flows.nocodb_utils import nocodb_request_with_retry
 
 # NocoDB configuration from centralized config
 NOCODB_API_URL = config.NOCODB_API_URL
@@ -68,32 +69,32 @@ async def load_texts_from_nocodb() -> Dict[str, str]:
     }
 
     try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{NOCODB_API_URL}/api/v2/tables/{TEXTS_TABLE_ID}/records",
-                headers=headers,
-                timeout=10.0
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = await nocodb_request_with_retry(
+            "GET",
+            f"{NOCODB_API_URL}/api/v2/tables/{TEXTS_TABLE_ID}/records",
+            headers=headers,
+            timeout=15.0
+        )
+        response.raise_for_status()
+        data = response.json()
 
-            # Parse records into dict
-            texts = {}
-            records = data.get("list", []) or data.get("records", [])
+        # Parse records into dict
+        texts = {}
+        records = data.get("list", []) or data.get("records", [])
 
-            for record in records:
-                action = record.get("action")
-                text = record.get("text")
-                if action and text:
-                    texts[action] = text
+        for record in records:
+            action = record.get("action")
+            text = record.get("text")
+            if action and text:
+                texts[action] = text
 
-            print(f"✅ Loaded {len(texts)} texts from NocoDB")
+        print(f"✅ Loaded {len(texts)} texts from NocoDB")
 
-            # Validate all required keys are present
-            validate_texts(texts)
-            print(f"✅ All required text constants validated")
+        # Validate all required keys are present
+        validate_texts(texts)
+        print(f"✅ All required text constants validated")
 
-            return texts
+        return texts
 
     except httpx.HTTPError as e:
         raise ValueError(
